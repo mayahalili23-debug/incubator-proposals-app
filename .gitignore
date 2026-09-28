@@ -1,0 +1,8 @@
+# Nothing secret belongs in this repository, and this makes that explicit.
+.env
+.env.*
+.mappsrc
+*.pem
+*.key
+node_modules/
+.DS_Store

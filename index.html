@@ -1,0 +1,1093 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>הצעות שיבוץ</title>
+<script src="https://cdn.jsdelivr.net/npm/monday-sdk-js@0.5.5/dist/main.js"></script>
+<style>
+  :root{
+    --bg:#f6f7fb; --card:#fff; --line:#e3e6ef; --ink:#1f2439; --muted:#6b7280;
+    --possible:#e8f7ee; --possible-ink:#1b7a43;
+    --review:#fff6e5; --review-ink:#9a6300;
+    --deep:#fdecec; --deep-ink:#a32222;
+    --pick:#e9eeff; --pick-ink:#2647b8;
+    --done:#dff5e6; --done-ink:#15703c;
+    --drop:#eef0f5; --drop-ink:#616a7d;
+    --accent:#2f4ae0; --ok:#1b7a43; --err:#a32222;
+  }
+  /* monday hands the viewer's theme through the context and stamps it here.
+     Every colour is a CSS variable, so the dark palette is a redefinition
+     of those variables and not a second stylesheet that drifts from the
+     first one. */
+  :root[data-theme="dark"]{
+    --bg:#181b34; --card:#20243f; --line:#333a5c; --ink:#eceffb; --muted:#9aa2c4;
+    --possible:#14361f; --possible-ink:#7fe0a3;
+    --review:#3a2d10; --review-ink:#f0c775;
+    --deep:#3b1a1a; --deep-ink:#f2a3a3;
+    --pick:#2c3775; --pick-ink:#c2ceff;
+    --done:#14361f; --done-ink:#7fe0a3;
+    --drop:#282d4a; --drop-ink:#aab2cf;
+    --accent:#8ea2ff; --ok:#7fe0a3; --err:#f2a3a3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 "Segoe UI",Arial,Helvetica,sans-serif}
+  header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+         padding:14px 18px;background:var(--card);border-bottom:1px solid var(--line)}
+  /* Compact mode is not a smaller font, it is fewer things. A dashboard cell
+     is often a third of the screen, and the summary is what gets read. */
+  body.compact header{padding:9px 12px;gap:8px}
+  body.compact h1{font-size:15px}
+  body.compact main{padding:9px 12px}
+  body.compact th,body.compact td{padding:6px 9px}
+  body.compact .filters{padding:9px 12px}
+  .summary{display:flex;gap:8px;flex-wrap:wrap;padding:10px 18px;
+           background:var(--card);border-bottom:1px solid var(--line)}
+  body.compact .summary{padding:8px 12px;gap:6px}
+  .stat{display:flex;gap:6px;align-items:baseline;padding:4px 11px;border-radius:99px;
+        background:var(--bg);border:1px solid var(--line)}
+  .stat b{font-size:15px;font-variant-numeric:tabular-nums}
+  .stat.s-possible{background:var(--possible);color:var(--possible-ink);border-color:transparent}
+  .stat.s-review{background:var(--review);color:var(--review-ink);border-color:transparent}
+  .stat.s-deep{background:var(--deep);color:var(--deep-ink);border-color:transparent}
+  .stat.k-chosen{background:var(--done);color:var(--done-ink);border-color:transparent}
+  .stat.k-preferred{background:var(--pick);color:var(--pick-ink);border-color:transparent}
+  .info{padding:7px 18px;background:var(--bg);color:var(--muted);font-size:12.5px;
+        border-bottom:1px solid var(--line)}
+  .info.warn{color:var(--review-ink);background:var(--review)}
+  details.filters-wrap{background:var(--card);border-bottom:1px solid var(--line)}
+  details.filters-wrap>summary{cursor:pointer;padding:9px 18px;color:var(--muted);
+        list-style:none;user-select:none}
+  body.compact details.filters-wrap>summary{padding:8px 12px}
+  details.filters-wrap>summary::-webkit-details-marker{display:none}
+  details.filters-wrap[open]>summary{border-bottom:1px solid var(--line)}
+  .backdrop{position:fixed;inset:0;background:rgba(12,15,35,.45);
+            display:flex;align-items:center;justify-content:center;padding:16px}
+  .modal{background:var(--card);border:1px solid var(--line);border-radius:12px;
+         width:min(460px,100%);max-height:88vh;overflow:auto;padding:16px 18px;
+         position:relative;box-shadow:0 18px 44px rgba(10,14,40,.28)}
+  h1{font-size:17px;margin:0;font-weight:600}
+  .count{color:var(--muted)}
+  .grow{flex:1}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);
+         color:var(--ink);border-radius:7px;padding:6px 12px}
+  button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+  button:disabled{cursor:not-allowed;opacity:.55}
+  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+           padding:12px 18px;background:var(--card);border-bottom:1px solid var(--line)}
+  .filters label{display:flex;gap:6px;align-items:center;color:var(--muted)}
+  select,input,textarea{font:inherit;border:1px solid var(--line);border-radius:7px;
+               padding:5px 8px;background:var(--card);color:var(--ink);max-width:180px}
+  main{padding:14px 18px}
+  table{width:100%;border-collapse:collapse;background:var(--card);
+        border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line)}
+  th{background:#fafbff;font-weight:600;color:var(--muted);font-size:13px}
+  :root[data-theme="dark"] th{background:#252a48}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:#f9faff}
+  :root[data-theme="dark"] tbody tr:hover{background:#262b4a}
+  tbody tr:last-child td{border-bottom:none}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600}
+  .s-possible{background:var(--possible);color:var(--possible-ink)}
+  .s-review{background:var(--review);color:var(--review-ink)}
+  .s-deep{background:var(--deep);color:var(--deep-ink)}
+  .k-preferred{background:var(--pick);color:var(--pick-ink)}
+  .k-chosen{background:var(--done);color:var(--done-ink)}
+  .k-rejected{background:var(--drop);color:var(--drop-ink)}
+  .k-none{color:var(--muted)}
+  .score{font-variant-numeric:tabular-nums;font-weight:600}
+  .note{padding:26px;text-align:center;color:var(--muted);background:var(--card);
+        border:1px solid var(--line);border-radius:10px}
+  .note.bad{color:var(--deep-ink);background:var(--deep);border-color:#f3c9c9;text-align:right}
+  .drawer{position:fixed;inset:0 auto 0 0;width:min(420px,92vw);background:var(--card);
+          border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(20,24,60,.10);
+          padding:16px 18px;overflow:auto}
+  .drawer h2,.modal h2{font-size:16px;margin:0 0 2px}
+  .drawer .sub,.modal .sub{color:var(--muted);margin-bottom:14px}
+  .field{margin:13px 0}
+  .field .k{color:var(--muted);font-size:12px;margin-bottom:3px}
+  .field .v{white-space:pre-wrap}
+  .ro{margin-top:18px;padding:9px 11px;border:1px dashed var(--line);border-radius:8px;
+      color:var(--muted);font-size:13px}
+  .close{position:absolute;top:12px;left:14px}
+  /* The selection block. It is the only part of this app that can change
+     anything in monday, so it is visually separated and always states
+     what it is about to write. */
+  .pick{margin-top:18px;padding:12px;border:1px solid var(--line);border-radius:9px;
+        background:var(--bg)}
+  .pick .k{color:var(--muted);font-size:12px;margin-bottom:7px}
+  .pick-row{display:flex;gap:7px;flex-wrap:wrap}
+  .pick-row button{padding:6px 13px}
+  /* The pressed state has to survive sitting next to a hovered or focused
+     button, so it is a filled chip rather than another blue outline. */
+  .pick-row button[aria-pressed="true"]{border-color:transparent;font-weight:700;
+        background:var(--pick);color:var(--pick-ink);box-shadow:inset 0 0 0 2px var(--accent)}
+  .pick-row button[aria-pressed="true"]:hover{color:var(--pick-ink)}
+  .pick textarea{max-width:none;width:100%;min-height:62px;resize:vertical;margin-top:4px}
+  .pick .note-row{display:flex;gap:7px;align-items:center;margin-top:7px}
+  .say{min-height:20px;font-size:12.5px;margin-top:9px}
+  .say.ok{color:var(--ok)}
+  .say.err{color:var(--err);white-space:pre-wrap}
+  .say.busy{color:var(--muted)}
+  @media (max-width:560px){ th.hide,td.hide{display:none} }
+</style>
+</head>
+<body>
+<header>
+  <h1>הצעות שיבוץ</h1>
+  <span class="count" id="cycle"></span>
+  <span class="grow"></span>
+  <span class="count" id="count"></span>
+  <button id="refresh">רענון</button>
+</header>
+
+<div class="summary" id="summary" hidden></div>
+<div class="info" id="info" hidden></div>
+
+<details class="filters-wrap" id="filters-wrap" hidden>
+<summary>סינון ומיון</summary>
+<div class="filters" id="filters">
+  <label>הצגה <select id="f-show"><option value="">הכל</option></select></label>
+  <label>סטטוס <select id="f-status"><option value="">הכל</option></select></label>
+  <label>בחירה <select id="f-selection"><option value="">הכל</option></select></label>
+  <label>אולם <select id="f-venue"><option value="">הכל</option></select></label>
+  <label>אזור <select id="f-region"><option value="">הכל</option></select></label>
+  <label>מתאריך <input type="date" id="f-from"></label>
+  <label>עד <input type="date" id="f-to"></label>
+  <label><input type="checkbox" id="f-action"> רק מה שדורש טיפול</label>
+  <label>מיון <select id="f-sort">
+    <option value="score">ציון, יורד</option>
+    <option value="date">תאריך, עולה</option>
+    <option value="show">הצגה</option>
+  </select></label>
+  <button id="clear">נקה סינון</button>
+</div>
+</details>
+
+<main id="main"><div class="note">טוען…</div></main>
+
+<!-- ===== PURE LOGIC START ===== -->
+<script>
+window.ProposalsLogic = (function () {
+  "use strict";
+
+  /** The only board this app may ever touch, read or write. A Board View
+   *  receives its board from the host, and a view dropped on another board
+   *  would otherwise happily read somebody else's data. */
+  var BOARD_ID = "5104789253";
+  var VENUES_BOARD_ID = "1168246788";
+
+  /** Column contract, copied from docs/results_board_ids.json. Reading by
+   *  id rather than by title, because a title is a label somebody can
+   *  rename and an id is not. */
+  var COL = {
+    cycle: "color_mm7fwfh8",
+    show: "board_relation_mm7fdwv5",
+    date: "date_mm7fgb9a",
+    venue: "board_relation_mm7f3sa9",
+    result_status: "color_mm7fgk5x",
+    score: "numeric_mm7f602c",
+    rank_reason: "long_text_mm7fk75k",
+    affected_people: "long_text_mm7fb4rg",
+    issue_type: "color_mm7f5ept",
+    needs_action: "color_mm7f4nny",
+    production_note: "long_text_mm7fn714",
+    selection_status: "color_mm7ftetp",
+    run_id: "text_mm7f2jzf",
+    candidate_id: "text_mm7fmfx5",
+    run_date: "date_mm7f8vfx"
+  };
+  var VENUE_CITY_COL = "dropdown_mm1sx3x4";
+
+  /** The two columns a human owns. Everything else on that board belongs to
+   *  the engine, and the engine rewrites it on every run, so a value typed
+   *  here would be silently destroyed. The list is the whole write surface. */
+  var WRITABLE_COLUMNS = [COL.selection_status, COL.production_note];
+
+  /** The one mutation this app is allowed to send. Written once, so the
+   *  verb appears exactly once in the file and the read guard below bans
+   *  it by reference rather than by a second copy of the string. */
+  var WRITE_MUTATION = "change_multiple_column_values";
+
+  var FORBIDDEN_MUTATIONS = [
+    "create_item", "create_board", "create_group", "create_column",
+    "change_column_value", "change_simple_column_value",
+    "delete_item", "delete_board", "delete_column", "delete_group",
+    "archive_item", "archive_board", "duplicate_item", "duplicate_board",
+    "move_item_to_group", "update_column", "create_widget", "create_view",
+    "create_update", "add_file_to_column", "create_notification"
+  ];
+
+  var STATUS_CLASS = {
+    "אפשרי": "s-possible",
+    "דורש בדיקה": "s-review",
+    "דורש בדיקה מעמיקה": "s-deep"
+  };
+
+  /** The four labels that exist on the selection column, exactly as the
+   *  builder created them. Writing anything else would make monday invent
+   *  a new label on a client's board. */
+  var SELECTION = {
+    preferred: "מועדף",
+    chosen: "נבחר",
+    rejected: "נדחה",
+    none: "לא נבדק"
+  };
+  var SELECTION_LABELS = [SELECTION.preferred, SELECTION.chosen,
+                          SELECTION.rejected, SELECTION.none];
+  var SELECTION_CLASS = {};
+  SELECTION_CLASS[SELECTION.preferred] = "k-preferred";
+  SELECTION_CLASS[SELECTION.chosen] = "k-chosen";
+  SELECTION_CLASS[SELECTION.rejected] = "k-rejected";
+  SELECTION_CLASS[SELECTION.none] = "k-none";
+
+  var NOTE_MAX = 2000;
+
+  function isBoardAllowed(boardId) {
+    return String(boardId || "") === BOARD_ID;
+  }
+
+  /** Refuses anything that is not a read. Used for every query, so a read
+   *  path can never grow a mutation by accident. */
+  function assertReadOnly(query) {
+    var q = String(query || "");
+    if (q.replace(/^\s+/, "").indexOf("query") !== 0) {
+      throw new Error("refusing a document that is not a query");
+    }
+    var banned = FORBIDDEN_MUTATIONS.concat([WRITE_MUTATION]);
+    for (var i = 0; i < banned.length; i++) {
+      if (q.indexOf(banned[i]) !== -1) {
+        throw new Error("refusing a document that contains " + banned[i]);
+      }
+    }
+    return q;
+  }
+
+  /** The write side of the same idea: the document must be a mutation, it
+   *  must be the one mutation we allow, and it must contain no other verb. */
+  function assertWriteQuery(query) {
+    var q = String(query || "");
+    if (q.replace(/^\s+/, "").indexOf("mutation") !== 0) {
+      throw new Error("refusing a write document that is not a mutation");
+    }
+    if (q.indexOf(WRITE_MUTATION) === -1) {
+      throw new Error("refusing a mutation that is not " + WRITE_MUTATION);
+    }
+    for (var i = 0; i < FORBIDDEN_MUTATIONS.length; i++) {
+      if (q.indexOf(FORBIDDEN_MUTATIONS[i]) !== -1) {
+        throw new Error("refusing a document that contains " + FORBIDDEN_MUTATIONS[i]);
+      }
+    }
+    return q;
+  }
+
+  /** Every write passes here, and it inspects the values rather than the
+   *  text of the query. Three separate things are checked because three
+   *  separate mistakes are possible: the wrong board, the wrong column,
+   *  and the right column written in a shape that means something else.
+   *
+   *  The last one is the subtle one. On a status column {"index": 3} does
+   *  not mean the third label, it means the label whose id is 3, and those
+   *  two coincide only by luck. So an index is refused outright and only a
+   *  known label is accepted. */
+  function assertWriteAllowed(boardId, columnValues) {
+    if (String(boardId || "") !== BOARD_ID) {
+      throw new Error("refusing to write to board " + boardId);
+    }
+    if (!columnValues || typeof columnValues !== "object"
+        || Array.isArray(columnValues)) {
+      throw new Error("refusing a write without column values");
+    }
+    var keys = Object.keys(columnValues);
+    if (!keys.length) {
+      throw new Error("refusing an empty write");
+    }
+    for (var i = 0; i < keys.length; i++) {
+      if (WRITABLE_COLUMNS.indexOf(keys[i]) === -1) {
+        throw new Error("refusing to write to column " + keys[i]);
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(columnValues, COL.selection_status)) {
+      assertSelectionValue(columnValues[COL.selection_status]);
+    }
+    if (Object.prototype.hasOwnProperty.call(columnValues, COL.production_note)) {
+      assertNoteValue(columnValues[COL.production_note]);
+    }
+    return columnValues;
+  }
+
+  function assertSelectionValue(v) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) {
+      throw new Error("a selection must be an object");
+    }
+    var keys = Object.keys(v);
+    if (keys.length !== 1 || keys[0] !== "label") {
+      throw new Error("a status must be written by label alone, got " + keys.join(","));
+    }
+    if (SELECTION_LABELS.indexOf(v.label) === -1) {
+      throw new Error("unknown selection label " + v.label);
+    }
+    return v;
+  }
+
+  function assertNoteValue(v) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) {
+      throw new Error("a note must be an object");
+    }
+    var keys = Object.keys(v);
+    if (keys.length !== 1 || keys[0] !== "text") {
+      throw new Error("a long text must be written as text alone, got " + keys.join(","));
+    }
+    if (typeof v.text !== "string") {
+      throw new Error("a note must be a string");
+    }
+    if (v.text.length > NOTE_MAX) {
+      throw new Error("the note is longer than " + NOTE_MAX + " characters");
+    }
+    return v;
+  }
+
+  function selectionPayload(label) {
+    var out = {};
+    out[COL.selection_status] = { label: String(label) };
+    return assertWriteAllowed(BOARD_ID, out);
+  }
+
+  function notePayload(text) {
+    var out = {};
+    out[COL.production_note] = { text: String(text == null ? "" : text) };
+    return assertWriteAllowed(BOARD_ID, out);
+  }
+
+  /** Asks for the two human columns back in the same round trip, so the UI
+   *  is repainted from what the server stored and never from what we hoped
+   *  it would store. */
+  function selectionMutation() {
+    return assertWriteQuery(
+      "mutation ($board: ID!, $item: ID!, $vals: JSON!, $cols: [String!]) {" +
+      " " + WRITE_MUTATION + " (board_id: $board, item_id: $item," +
+      " column_values: $vals) { id column_values (ids: $cols) { id text } } }");
+  }
+
+  /** A view-only seat cannot change anything anywhere in monday, so the
+   *  buttons are disabled rather than offered and then refused. Everything
+   *  else is left to the server: board-level permissions are not visible
+   *  from here, and guessing them would only produce a second, wrong
+   *  answer next to the real one. */
+  function writeBlockReason(context) {
+    var u = (context || {}).user || {};
+    if (u.isViewOnly === true) {
+      return "המשתמש שלך הוא צפייה בלבד, לכן הסימון מוצג לקריאה בלבד.";
+    }
+    return "";
+  }
+
+  function canWrite(context) {
+    return writeBlockReason(context) === "";
+  }
+
+  /** Turns whatever monday returned into one sentence a person can act on. */
+  function writeErrorText(err) {
+    var raw = "";
+    if (err && err.message) { raw = String(err.message); }
+    else if (err && err.errors && err.errors.length) {
+      raw = err.errors.map(function (e) { return e.message || String(e); }).join("; ");
+    } else if (typeof err === "string") { raw = err; }
+    else if (err) { try { raw = JSON.stringify(err); } catch (e) { raw = String(err); } }
+    var low = raw.toLowerCase();
+    var hint;
+    if (low.indexOf("scope") !== -1 || low.indexOf("permission") !== -1
+        || low.indexOf("unauthor") !== -1 || low.indexOf("forbidden") !== -1) {
+      hint = "נראה שחסרה הרשאת כתיבה. לבדוק שהאפליקציה מותקנת עם boards:write " +
+             "ושיש לך הרשאת עריכה בבורד.";
+    } else if (low.indexOf("network") !== -1 || low.indexOf("failed to fetch") !== -1) {
+      hint = "נראה שהחיבור נפל. אפשר לנסות שוב.";
+    } else {
+      hint = "הסימון לא נשמר, והשורה נשארה כפי שהייתה.";
+    }
+    return hint + (raw ? "\n" + raw : "");
+  }
+
+  function cellText(item, columnId) {
+    var cvs = (item && item.column_values) || [];
+    for (var i = 0; i < cvs.length; i++) {
+      if (cvs[i] && cvs[i].id === columnId) {
+        return String(cvs[i].text == null ? "" : cvs[i].text).trim();
+      }
+    }
+    return "";
+  }
+
+  function linkedIds(item, columnId) {
+    var cvs = (item && item.column_values) || [];
+    for (var i = 0; i < cvs.length; i++) {
+      if (cvs[i] && cvs[i].id === columnId) {
+        return (cvs[i].linked_item_ids || []).map(String);
+      }
+    }
+    return [];
+  }
+
+  /** Score is a plain decimal in the column. Kept as a number for sorting
+   *  and formatted only for display, because the engine's own display
+   *  format (+11.00 with a unicode minus) sorts as text. */
+  function parseScore(raw) {
+    var n = parseFloat(String(raw).replace(",", "."));
+    return isFinite(n) ? n : null;
+  }
+
+  function formatScore(n) {
+    return n == null ? "" : n.toFixed(2);
+  }
+
+  function normaliseItem(item, venueRegions) {
+    var venueIds = linkedIds(item, COL.venue);
+    var venueId = venueIds.length ? venueIds[0] : "";
+    return {
+      id: String(item.id),
+      name: String(item.name || ""),
+      cycle: cellText(item, COL.cycle),
+      show: cellText(item, COL.show),
+      showIds: linkedIds(item, COL.show),
+      date: cellText(item, COL.date),
+      venue: cellText(item, COL.venue),
+      venueId: venueId,
+      region: (venueRegions || {})[venueId] || "",
+      status: cellText(item, COL.result_status),
+      score: parseScore(cellText(item, COL.score)),
+      rankReason: cellText(item, COL.rank_reason),
+      affectedPeople: cellText(item, COL.affected_people),
+      issueType: cellText(item, COL.issue_type),
+      needsAction: cellText(item, COL.needs_action),
+      productionNote: cellText(item, COL.production_note),
+      selectionStatus: cellText(item, COL.selection_status),
+      runId: cellText(item, COL.run_id),
+      candidateId: cellText(item, COL.candidate_id),
+      runDate: cellText(item, COL.run_date)
+    };
+  }
+
+  /** Applies what the server said it stored, and nothing else. Returns a
+   *  new row, so a caller that forgets to use the result does not end up
+   *  displaying a change that never happened. */
+  function applyWriteResult(row, returnedItem) {
+    var out = {}, k;
+    for (k in row) { if (Object.prototype.hasOwnProperty.call(row, k)) { out[k] = row[k]; } }
+    var cvs = (returnedItem && returnedItem.column_values) || [];
+    for (var i = 0; i < cvs.length; i++) {
+      if (cvs[i].id === COL.selection_status) {
+        out.selectionStatus = String(cvs[i].text == null ? "" : cvs[i].text).trim();
+      } else if (cvs[i].id === COL.production_note) {
+        out.productionNote = String(cvs[i].text == null ? "" : cvs[i].text).trim();
+      }
+    }
+    return out;
+  }
+
+  /** A connect column returns no text on some API versions, so a venue or
+   *  show name can arrive empty. Falling back to the item name keeps the
+   *  row readable instead of blank. */
+  function fillFromName(row) {
+    if (row.show && row.venue) { return row; }
+    var parts = row.name.split(",").map(function (p) { return p.trim(); });
+    if (!row.show && parts.length > 0) { row.show = parts[0]; }
+    if (!row.venue && parts.length > 2) { row.venue = parts[2]; }
+    return row;
+  }
+
+  function venueRegionMap(venueItems) {
+    var out = {};
+    (venueItems || []).forEach(function (v) {
+      var city = cellText(v, VENUE_CITY_COL);
+      if (city) { out[String(v.id)] = city; }
+    });
+    return out;
+  }
+
+  /** An unmarked row reads as "לא נבדק" whether the cell is empty or holds
+   *  that label, so the filter has to treat the two as the same thing. */
+  function effectiveSelection(row) {
+    return (row && row.selectionStatus) ? row.selectionStatus : SELECTION.none;
+  }
+
+  function applyFilters(rows, f) {
+    f = f || {};
+    return (rows || []).filter(function (r) {
+      if (f.show && r.show !== f.show) { return false; }
+      if (f.status && r.status !== f.status) { return false; }
+      if (f.selection && effectiveSelection(r) !== f.selection) { return false; }
+      if (f.venue && r.venue !== f.venue) { return false; }
+      if (f.region && r.region !== f.region) { return false; }
+      if (f.from && (!r.date || r.date < f.from)) { return false; }
+      if (f.to && (!r.date || r.date > f.to)) { return false; }
+      if (f.needsActionOnly && r.needsAction !== "כן") { return false; }
+      return true;
+    });
+  }
+
+  function sortRows(rows, mode) {
+    var copy = (rows || []).slice();
+    if (mode === "date") {
+      copy.sort(function (a, b) {
+        return String(a.date).localeCompare(String(b.date))
+            || (b.score || 0) - (a.score || 0);
+      });
+    } else if (mode === "show") {
+      copy.sort(function (a, b) {
+        return String(a.show).localeCompare(String(b.show), "he")
+            || String(a.date).localeCompare(String(b.date));
+      });
+    } else {
+      copy.sort(function (a, b) {
+        return (b.score == null ? -Infinity : b.score)
+             - (a.score == null ? -Infinity : a.score)
+            || String(a.date).localeCompare(String(b.date));
+      });
+    }
+    return copy;
+  }
+
+  function distinct(rows, key) {
+    var seen = {};
+    (rows || []).forEach(function (r) { if (r[key]) { seen[r[key]] = true; } });
+    return Object.keys(seen).sort(function (a, b) {
+      return String(a).localeCompare(String(b), "he");
+    });
+  }
+
+  function statusClass(status) {
+    return STATUS_CLASS[status] || "";
+  }
+
+  function selectionClass(label) {
+    return SELECTION_CLASS[label] || "k-none";
+  }
+
+  var STATUS_ORDER = ["אפשרי", "דורש בדיקה", "דורש בדיקה מעמיקה"];
+
+  /** The line a person reads first in a small cell: how many proposals,
+   *  how many still need somebody, and how far the choosing has got. */
+  function summarise(rows) {
+    var counts = {};
+    STATUS_ORDER.forEach(function (s) { counts[s] = 0; });
+    (rows || []).forEach(function (r) {
+      if (counts[r.status] === undefined) { counts[r.status] = 0; }
+      counts[r.status] += 1;
+    });
+    return {
+      total: (rows || []).length,
+      counts: counts,
+      order: STATUS_ORDER.concat(Object.keys(counts).filter(function (k) {
+        return STATUS_ORDER.indexOf(k) === -1;
+      })),
+      needsAction: (rows || []).filter(function (r) {
+        return r.needsAction === "כן";
+      }).length,
+      chosen: (rows || []).filter(function (r) {
+        return effectiveSelection(r) === SELECTION.chosen;
+      }).length,
+      preferred: (rows || []).filter(function (r) {
+        return effectiveSelection(r) === SELECTION.preferred;
+      }).length
+    };
+  }
+
+  /** A Board View is handed one boardId; a dashboard widget is handed the
+   *  boards the dashboard happens to be wired to. Neither decides what we
+   *  read, which is always BOARD_ID. This only tells the two apart so the
+   *  layout and the messages can differ. */
+  function modeFromContext(context) {
+    var c = context || {};
+    if (c.boardId !== undefined && c.boardId !== null) { return "board_view"; }
+    if (Array.isArray(c.boardIds)) { return "widget"; }
+    return "unknown";
+  }
+
+  function contextBoardIds(context) {
+    var c = context || {};
+    if (Array.isArray(c.boardIds)) { return c.boardIds.map(String); }
+    if (c.boardId !== undefined && c.boardId !== null) { return [String(c.boardId)]; }
+    return [];
+  }
+
+  /** Whether the dashboard happens to be connected to the proposals board.
+   *  Informational only: reading works either way, because the query names
+   *  the board by id rather than taking it from the host. */
+  function isBoardConnected(context) {
+    return contextBoardIds(context).indexOf(BOARD_ID) !== -1;
+  }
+
+  function themeFromContext(context) {
+    var t = String(((context || {}).theme) || "").toLowerCase();
+    return (t.indexOf("dark") !== -1 || t.indexOf("black") !== -1) ? "dark" : "light";
+  }
+
+  function shortDate(iso) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(iso))
+      ? String(iso).slice(8, 10) + "/" + String(iso).slice(5, 7) : String(iso || "");
+  }
+
+  function proposalsQuery() {
+    return assertReadOnly(
+      "query ($board: [ID!], $group: String!, $cols: [String!], $cursor: String) {" +
+      " boards (ids: $board) { name groups (ids: [$group]) {" +
+      " items_page (limit: 100, cursor: $cursor) { cursor items { id name" +
+      " column_values (ids: $cols) { id text" +
+      " ... on BoardRelationValue { linked_item_ids } } } } } } }");
+  }
+
+  function venuesQuery() {
+    return assertReadOnly(
+      "query ($ids: [ID!], $cols: [String!]) { items (ids: $ids) { id name" +
+      " column_values (ids: $cols) { id text } } }");
+  }
+
+  return {
+    BOARD_ID: BOARD_ID, VENUES_BOARD_ID: VENUES_BOARD_ID,
+    COL: COL, VENUE_CITY_COL: VENUE_CITY_COL,
+    WRITABLE_COLUMNS: WRITABLE_COLUMNS, NOTE_MAX: NOTE_MAX,
+    SELECTION: SELECTION, SELECTION_LABELS: SELECTION_LABELS,
+    isBoardAllowed: isBoardAllowed, assertReadOnly: assertReadOnly,
+    assertWriteQuery: assertWriteQuery, assertWriteAllowed: assertWriteAllowed,
+    selectionPayload: selectionPayload, notePayload: notePayload,
+    selectionMutation: selectionMutation, applyWriteResult: applyWriteResult,
+    writeBlockReason: writeBlockReason, canWrite: canWrite,
+    writeErrorText: writeErrorText,
+    cellText: cellText, linkedIds: linkedIds,
+    parseScore: parseScore, formatScore: formatScore,
+    normaliseItem: normaliseItem, fillFromName: fillFromName,
+    venueRegionMap: venueRegionMap, effectiveSelection: effectiveSelection,
+    applyFilters: applyFilters, sortRows: sortRows, distinct: distinct,
+    statusClass: statusClass, selectionClass: selectionClass, shortDate: shortDate,
+    summarise: summarise, modeFromContext: modeFromContext,
+    contextBoardIds: contextBoardIds, isBoardConnected: isBoardConnected,
+    themeFromContext: themeFromContext, STATUS_ORDER: STATUS_ORDER,
+    proposalsQuery: proposalsQuery, venuesQuery: venuesQuery,
+    columnIds: function () { return Object.keys(COL).map(function (k) { return COL[k]; }); }
+  };
+})();
+</script>
+<!-- ===== PURE LOGIC END ===== -->
+
+<script>
+(function () {
+  "use strict";
+  var L = window.ProposalsLogic;
+  var mondayReady = typeof mondaySdk === "function";
+  var monday = mondayReady ? mondaySdk() : null;
+  var GROUP_ID = "group_mm7fd192";
+
+  var state = { rows: [], loading: false, error: "", boardOk: null,
+                mode: "unknown", loaded: false, canWrite: false, writeBlock: "" };
+  var el = function (id) { return document.getElementById(id); };
+
+  /** The single door to the network. Both guards below funnel through it,
+   *  so there is exactly one place in this file that can reach monday. */
+  function send(query, variables) {
+    return monday.api(query, { variables: variables });
+  }
+
+  function apiRead(query, variables) {
+    L.assertReadOnly(query);
+    return send(query, variables);
+  }
+
+  /** The values are checked as an object, and only then serialised for the
+   *  JSON! argument. Checking the string instead would be checking the
+   *  wrong thing. */
+  function apiWrite(itemId, columnValues) {
+    var q = L.selectionMutation();
+    L.assertWriteAllowed(L.BOARD_ID, columnValues);
+    return send(q, {
+      board: L.BOARD_ID, item: String(itemId),
+      vals: JSON.stringify(columnValues),
+      cols: [L.COL.selection_status, L.COL.production_note]
+    });
+  }
+
+  function paint(html) { el("main").innerHTML = html; }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  function renderSummary(visible) {
+    var box = el("summary");
+    if (!state.rows.length) { box.hidden = true; return; }
+    var s = L.summarise(visible);
+    var html = '<span class="stat"><b>' + s.total + "</b> הצעות</span>";
+    s.order.forEach(function (status) {
+      if (!s.counts[status]) { return; }
+      html += '<span class="stat ' + L.statusClass(status) + '"><b>' +
+        s.counts[status] + "</b> " + esc(status) + "</span>";
+    });
+    if (s.needsAction) {
+      html += '<span class="stat"><b>' + s.needsAction + "</b> דורשות טיפול</span>";
+    }
+    if (s.preferred) {
+      html += '<span class="stat k-preferred"><b>' + s.preferred + "</b> מועדפות</span>";
+    }
+    if (s.chosen) {
+      html += '<span class="stat k-chosen"><b>' + s.chosen + "</b> נבחרו</span>";
+    }
+    box.innerHTML = html;
+    box.hidden = false;
+  }
+
+  function currentFilters() {
+    return {
+      show: el("f-show").value, status: el("f-status").value,
+      selection: el("f-selection").value,
+      venue: el("f-venue").value, region: el("f-region").value,
+      from: el("f-from").value, to: el("f-to").value,
+      needsActionOnly: el("f-action").checked
+    };
+  }
+
+  function renderTable() {
+    var rows = L.sortRows(L.applyFilters(state.rows, currentFilters()),
+                          el("f-sort").value);
+    el("count").textContent = rows.length === state.rows.length
+      ? "" : rows.length + " מתוך " + state.rows.length;
+    renderSummary(rows);
+    if (!state.rows.length) {
+      paint('<div class="note">אין הצעות בבורד. הרצה של המנוע תיצור אותן.</div>');
+      return;
+    }
+    if (!rows.length) {
+      paint('<div class="note">אין הצעה שעונה על הסינון.</div>');
+      return;
+    }
+    var html = "<table><thead><tr><th>הצגה</th><th>תאריך</th><th>אולם</th>" +
+      '<th class="hide">אזור</th><th>סטטוס</th><th>ציון</th>' +
+      "<th>בחירה</th></tr></thead><tbody>";
+    rows.forEach(function (r) {
+      var sel = L.effectiveSelection(r);
+      html += '<tr data-id="' + esc(r.id) + '">' +
+        "<td>" + esc(r.show) + "</td>" +
+        "<td>" + esc(L.shortDate(r.date)) + "</td>" +
+        "<td>" + esc(r.venue) + "</td>" +
+        '<td class="hide">' + esc(r.region) + "</td>" +
+        '<td><span class="pill ' + L.statusClass(r.status) + '">' +
+          esc(r.status) + "</span></td>" +
+        '<td class="score">' + esc(L.formatScore(r.score)) + "</td>" +
+        '<td><span class="pill ' + L.selectionClass(sel) + '">' +
+          esc(sel) + "</span></td></tr>";
+    });
+    paint(html + "</tbody></table>");
+    Array.prototype.forEach.call(document.querySelectorAll("tbody tr"), function (tr) {
+      tr.addEventListener("click", function () { openCard(tr.getAttribute("data-id")); });
+    });
+  }
+
+  function field(k, v) {
+    return v ? '<div class="field"><div class="k">' + esc(k) +
+      '</div><div class="v">' + esc(v) + "</div></div>" : "";
+  }
+
+  function rowById(id) {
+    return state.rows.filter(function (x) { return x.id === id; })[0];
+  }
+
+  function replaceRow(updated) {
+    for (var i = 0; i < state.rows.length; i++) {
+      if (state.rows[i].id === updated.id) { state.rows[i] = updated; return; }
+    }
+  }
+
+  /** The selection block, rebuilt from the row every time. Nothing here
+   *  paints a value the server has not confirmed. */
+  function selectionHtml(r) {
+    var sel = L.effectiveSelection(r);
+    var buttons = L.SELECTION_LABELS.map(function (label) {
+      var caption = label === L.SELECTION.none ? "ביטול הסימון" : label;
+      return '<button class="btn-sel" data-label="' + esc(label) + '"' +
+        ' aria-pressed="' + (label === sel ? "true" : "false") + '"' +
+        (state.canWrite ? "" : " disabled") + ">" + esc(caption) + "</button>";
+    }).join("");
+    var note =
+      '<div class="k" style="margin-top:14px">הערת הפקה</div>' +
+      '<textarea id="pick-note" maxlength="' + L.NOTE_MAX + '"' +
+        (state.canWrite ? "" : " disabled") +
+        ' placeholder="אפשר להשאיר ריק">' + esc(r.productionNote || "") + "</textarea>" +
+      '<div class="note-row"><button id="pick-note-save"' +
+        (state.canWrite ? "" : " disabled") + ">שמירת ההערה</button></div>";
+    return '<div class="pick">' +
+      '<div class="k">סימון ההצעה. נכתב לבורד תוצאות שיבוץ.</div>' +
+      '<div class="pick-row">' + buttons + "</div>" +
+      note +
+      '<div class="say" id="pick-say">' +
+        (state.canWrite ? "" : esc(state.writeBlock)) + "</div></div>";
+  }
+
+  function openCard(id) {
+    var r = rowById(id);
+    if (!r) { return; }
+    var compact = document.body.classList.contains("compact");
+    var host = document.createElement("div");
+    var d = host;
+    if (compact) {
+      host.className = "backdrop";
+      d = document.createElement("div");
+      d.className = "modal";
+      host.appendChild(d);
+      host.addEventListener("click", function (e) {
+        if (e.target === host) { close(); }
+      });
+    } else {
+      d.className = "drawer";
+    }
+
+    function close() {
+      host.remove();
+      document.removeEventListener("keydown", onKey);
+    }
+    function onKey(e) { if (e.key === "Escape") { close(); } }
+
+    function draw() {
+      var row = rowById(id);
+      d.innerHTML =
+        '<button class="close" id="card-close">סגור</button>' +
+        "<h2>" + esc(row.show) + "</h2>" +
+        '<div class="sub">' + esc(L.shortDate(row.date)) + " · " + esc(row.venue) +
+        (row.region ? " · " + esc(row.region) : "") + "</div>" +
+        '<div class="field"><div class="k">סטטוס</div><div class="v">' +
+          '<span class="pill ' + L.statusClass(row.status) + '">' + esc(row.status) +
+          "</span></div></div>" +
+        field("ציון", L.formatScore(row.score)) +
+        field("סיבת דירוג", row.rankReason) +
+        field("אנשים משפיעים", row.affectedPeople) +
+        field("סוג בעיה", row.issueType) +
+        field("דורש טיפול", row.needsAction) +
+        field("מחזור", row.cycle) +
+        field("תאריך הרצה", row.runDate) +
+        field("מזהה הרצה", row.runId) +
+        selectionHtml(row);
+      d.querySelector("#card-close").addEventListener("click", close);
+      wireSelection(d, id, draw);
+    }
+
+    draw();
+    document.body.appendChild(host);
+    document.addEventListener("keydown", onKey);
+  }
+
+  function say(box, kind, text) {
+    box.className = "say " + kind;
+    box.textContent = text;
+  }
+
+  function setBusy(scope, busy) {
+    Array.prototype.forEach.call(
+      scope.querySelectorAll(".btn-sel, #pick-note-save, #pick-note"),
+      function (b) { b.disabled = busy || !state.canWrite; });
+  }
+
+  function wireSelection(scope, id, redraw) {
+    var box = scope.querySelector("#pick-say");
+    if (!state.canWrite) { return; }
+
+    function write(payload, okText) {
+      setBusy(scope, true);
+      say(box, "busy", "שומר…");
+      apiWrite(id, payload).then(function (res) {
+        var returned = ((res.data || {})[Object.keys(res.data || {})[0]]) || null;
+        var errs = res && res.errors;
+        if (errs && errs.length) { throw errs[0]; }
+        replaceRow(L.applyWriteResult(rowById(id), returned));
+        renderTable();
+        redraw();
+        say(scope.querySelector("#pick-say"), "ok", okText);
+      }).catch(function (err) {
+        /* The row in state was never touched, so the card still shows what
+           monday holds. Only the message changes. */
+        setBusy(scope, false);
+        say(box, "err", L.writeErrorText(err));
+      });
+    }
+
+    Array.prototype.forEach.call(scope.querySelectorAll(".btn-sel"), function (b) {
+      b.addEventListener("click", function () {
+        var label = b.getAttribute("data-label");
+        write(L.selectionPayload(label),
+              label === L.SELECTION.none ? "הסימון בוטל." : "נשמר: " + label);
+      });
+    });
+
+    var saveNote = scope.querySelector("#pick-note-save");
+    if (saveNote) {
+      saveNote.addEventListener("click", function () {
+        var t = scope.querySelector("#pick-note").value;
+        write(L.notePayload(t), "ההערה נשמרה.");
+      });
+    }
+  }
+
+  function fillSelect(id, values) {
+    var s = el(id), keep = s.value;
+    s.innerHTML = '<option value="">הכל</option>';
+    values.forEach(function (v) {
+      var o = document.createElement("option");
+      o.value = v; o.textContent = v; s.appendChild(o);
+    });
+    s.value = values.indexOf(keep) !== -1 ? keep : "";
+  }
+
+  function refreshFilters() {
+    fillSelect("f-show", L.distinct(state.rows, "show"));
+    fillSelect("f-status", L.distinct(state.rows, "status"));
+    fillSelect("f-selection", L.SELECTION_LABELS.slice());
+    fillSelect("f-venue", L.distinct(state.rows, "venue"));
+    fillSelect("f-region", L.distinct(state.rows, "region"));
+    el("filters-wrap").hidden = false;
+  }
+
+  function applyTheme(context) {
+    document.documentElement.setAttribute("data-theme", L.themeFromContext(context));
+  }
+
+  /** Compact is decided by the space the host actually gave us, not by the
+   *  feature type: a widget dragged full width deserves the roomy layout. */
+  function applyDensity() {
+    document.body.classList.toggle("compact", window.innerWidth < 720);
+  }
+
+  function showInfo(text, warn) {
+    var box = el("info");
+    if (!text) { box.hidden = true; return; }
+    box.className = warn ? "info warn" : "info";
+    box.textContent = text;
+    box.hidden = false;
+  }
+
+  function loadVenueRegions(venueIds) {
+    if (!venueIds.length) { return Promise.resolve({}); }
+    return apiRead(L.venuesQuery(), { ids: venueIds, cols: [L.VENUE_CITY_COL] })
+      .then(function (res) { return L.venueRegionMap((res.data || {}).items || []); })
+      .catch(function () { return {}; });   /* region is a nicety, never a blocker */
+  }
+
+  function loadAll() {
+    state.loading = true;
+    paint('<div class="note">טוען…</div>');
+    var items = [], cursor = null, guard = 0;
+
+    function page() {
+      return apiRead(L.proposalsQuery(), {
+        board: [L.BOARD_ID], group: GROUP_ID, cols: L.columnIds(), cursor: cursor
+      }).then(function (res) {
+        var boards = ((res.data || {}).boards) || [];
+        var groups = (boards[0] || {}).groups || [];
+        var p = (groups[0] || {}).items_page || { items: [], cursor: null };
+        items = items.concat(p.items || []);
+        cursor = p.cursor;
+        if (cursor && ++guard < 40) { return page(); }
+        return items;
+      });
+    }
+
+    return page().then(function (raw) {
+      var venueIds = [];
+      raw.forEach(function (it) {
+        L.linkedIds(it, L.COL.venue).forEach(function (v) {
+          if (venueIds.indexOf(v) === -1) { venueIds.push(v); }
+        });
+      });
+      return loadVenueRegions(venueIds).then(function (regions) {
+        state.rows = raw.map(function (it) {
+          return L.fillFromName(L.normaliseItem(it, regions));
+        });
+        state.loading = false;
+        el("cycle").textContent = state.rows.length ? state.rows[0].cycle : "";
+        refreshFilters();
+        renderTable();
+      });
+    }).catch(function (err) {
+      state.loading = false;
+      paint('<div class="note bad"><b>שגיאה בקריאת הבורד.</b><br>' +
+        esc(err && err.message ? err.message : String(err)) +
+        "<br><br>לרוב זו הרשאת קריאה חסרה לבורד, או חוסר חיבור. " +
+        "האפליקציה לא ביצעה שום שינוי.</div>");
+    });
+  }
+
+  function wire() {
+    ["f-show", "f-status", "f-selection", "f-venue", "f-region",
+     "f-from", "f-to", "f-action", "f-sort"]
+      .forEach(function (id) {
+        el(id).addEventListener("change", renderTable);
+      });
+    el("clear").addEventListener("click", function () {
+      ["f-show", "f-status", "f-selection", "f-venue", "f-region",
+       "f-from", "f-to", "f-sort"]
+        .forEach(function (id) { el(id).value = ""; });
+      el("f-sort").value = "score";
+      el("f-action").checked = false;
+      renderTable();
+    });
+    el("refresh").addEventListener("click", function () {
+      if (state.boardOk) { loadAll(); }
+    });
+  }
+
+  function wrongBoard(boardId) {
+    el("filters-wrap").hidden = true;
+    el("summary").hidden = true;
+    showInfo("");
+    el("count").textContent = "";
+    paint('<div class="note bad"><b>האפליקציה אינה פועלת על הבורד הזה.</b><br><br>' +
+      "היא נעולה לבורד ההצעות <code>" + esc(L.BOARD_ID) + "</code>, " +
+      "ונפתחה על <code>" + esc(boardId || "לא ידוע") + "</code>.<br><br>" +
+      "לא בוצעה שום קריאה ולא בוצע שום שינוי.</div>");
+  }
+
+  function start() {
+    wire();
+    if (!mondayReady) {
+      paint('<div class="note bad"><b>ה-SDK של monday לא נטען.</b><br>' +
+        "האפליקציה מיועדת לרוץ בתוך monday, כווידג'ט בדשבורד או כ-Board View.</div>");
+      return;
+    }
+    window.addEventListener("resize", applyDensity);
+
+    monday.listen("context", function (res) {
+      var ctx = (res && res.data) || {};
+      state.mode = L.modeFromContext(ctx);
+      state.writeBlock = L.writeBlockReason(ctx);
+      state.canWrite = state.writeBlock === "";
+      applyTheme(ctx);
+      applyDensity();
+
+      if (state.mode === "board_view") {
+        /* A Board View sits ON a board, so sitting on the wrong one is a
+           real mistake and the app refuses to read or write anything. */
+        var ok = L.isBoardAllowed(ctx.boardId);
+        state.boardOk = ok;
+        if (!ok) { wrongBoard(ctx.boardId); return; }
+        showInfo(state.writeBlock, true);
+      } else {
+        /* A widget names the board itself, so a dashboard wired elsewhere
+           is not an error. It is worth saying once, and nothing more. */
+        state.boardOk = true;
+        if (state.writeBlock) { showInfo(state.writeBlock, true); }
+        else {
+          showInfo(L.isBoardConnected(ctx) ? "" :
+            "הדשבורד אינו מחובר לבורד ההצעות, והווידג'ט קורא אותו ישירות לפי מזהה. " +
+            "אין בכך בעיה.");
+        }
+      }
+      if (!state.loaded) { state.loaded = true; loadAll(); }
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start);
+  } else { start(); }
+})();
+</script>
+</body>
+</html>
