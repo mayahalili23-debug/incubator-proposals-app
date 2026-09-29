@@ -600,7 +600,13 @@ window.ProposalsLogic = (function () {
    *  layout and the messages can differ. */
   function modeFromContext(context) {
     var c = context || {};
-    if (c.boardId !== undefined && c.boardId !== null) { return "board_view"; }
+    /* An empty boardId is not a board. monday's own preview hands the
+       widget `boardId: ""`, and a check for undefined and null alone lets
+       that through, so the app decides it is a Board View sitting on the
+       wrong board and refuses to work. A widget names its board in code,
+       so it must never be turned away by a value the host left blank. */
+    if (c.boardId !== undefined && c.boardId !== null
+        && String(c.boardId).trim() !== "") { return "board_view"; }
     if (Array.isArray(c.boardIds)) { return "widget"; }
     return "unknown";
   }
