@@ -598,23 +598,32 @@ window.ProposalsLogic = (function () {
    *  boards the dashboard happens to be wired to. Neither decides what we
    *  read, which is always BOARD_ID. This only tells the two apart so the
    *  layout and the messages can differ. */
+  /** A monday board id is a positive integer, and nothing else is one.
+   *  Testing the shape rather than listing the blanks is what matters
+   *  here: the host hands a dashboard widget a placeholder in that field,
+   *  and every guess at which placeholder (undefined, null, "", 0) leaves
+   *  the next one to be discovered in production. Anything that is not a
+   *  positive integer is treated as no board at all. */
+  function isRealBoardId(value) {
+    return /^[1-9][0-9]*$/.test(String(value == null ? "" : value).trim());
+  }
+
   function modeFromContext(context) {
     var c = context || {};
-    /* An empty boardId is not a board. monday's own preview hands the
-       widget `boardId: ""`, and a check for undefined and null alone lets
-       that through, so the app decides it is a Board View sitting on the
-       wrong board and refuses to work. A widget names its board in code,
-       so it must never be turned away by a value the host left blank. */
-    if (c.boardId !== undefined && c.boardId !== null
-        && String(c.boardId).trim() !== "") { return "board_view"; }
+    /* A widget names its board in code, so a placeholder in this field
+       must never make the app think it is a Board View on a foreign
+       board and refuse to read. */
+    if (isRealBoardId(c.boardId)) { return "board_view"; }
     if (Array.isArray(c.boardIds)) { return "widget"; }
     return "unknown";
   }
 
   function contextBoardIds(context) {
     var c = context || {};
-    if (Array.isArray(c.boardIds)) { return c.boardIds.map(String); }
-    if (c.boardId !== undefined && c.boardId !== null) { return [String(c.boardId)]; }
+    if (Array.isArray(c.boardIds)) {
+      return c.boardIds.filter(isRealBoardId).map(String);
+    }
+    if (isRealBoardId(c.boardId)) { return [String(c.boardId)]; }
     return [];
   }
 
@@ -655,7 +664,8 @@ window.ProposalsLogic = (function () {
     COL: COL, VENUE_CITY_COL: VENUE_CITY_COL,
     WRITABLE_COLUMNS: WRITABLE_COLUMNS, NOTE_MAX: NOTE_MAX,
     SELECTION: SELECTION, SELECTION_LABELS: SELECTION_LABELS,
-    isBoardAllowed: isBoardAllowed, assertReadOnly: assertReadOnly,
+    isBoardAllowed: isBoardAllowed, isRealBoardId: isRealBoardId,
+    assertReadOnly: assertReadOnly,
     assertWriteQuery: assertWriteQuery, assertWriteAllowed: assertWriteAllowed,
     selectionPayload: selectionPayload, notePayload: notePayload,
     selectionMutation: selectionMutation, applyWriteResult: applyWriteResult,
