@@ -184,6 +184,36 @@
   /* A seven-column month does not fit a phone, so below that width the
      same month is shown as a list of the days that have something. */
   @media (max-width:560px){ .cal-grid{display:none} .agenda{display:block} }
+  /* preliminary preview tab (read only) */
+  .tabs{display:flex;gap:6px}
+  .tabs button[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:transparent}
+  .pv-banner{margin:12px 18px 0;padding:12px 14px;border-radius:8px;background:var(--deep);color:var(--deep-ink);
+             font-weight:700;font-size:16px;border:1px solid transparent}
+  .pv-banner small{display:block;font-weight:400;font-size:12.5px;margin-top:4px}
+  .pv-wrap{padding:12px 18px}
+  .pv-sec{margin:14px 0}
+  .pv-sec h2{font-size:15px;margin:0 0 6px;display:flex;gap:8px;align-items:baseline}
+  .pv-tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;white-space:nowrap}
+  .pv-ok{background:var(--possible);color:var(--possible-ink)}
+  .pv-cond{background:var(--review);color:var(--review-ink)}
+  .pv-gap{background:var(--deep);color:var(--deep-ink)}
+  .pv-detail td{background:var(--bg);white-space:pre-line;font-size:12.5px}
+  .pv-row{cursor:pointer}
+  .pv-more{margin-top:6px}
+  .pv-gapcard{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+  .pv-gapcard b{display:block}
+  .pv-gapcard p{margin:4px 0 0;white-space:pre-line}
+  .pv-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 14px}
+  .pv-card h2{font-size:16px;margin:0 0 6px;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+  .pv-card h3{font-size:13.5px;margin:12px 0 4px}
+  .pv-nums{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted)}
+  .pv-nums b{color:var(--ink)}
+  .pv-gapline{margin:8px 0 0;padding:7px 10px;border-radius:7px;background:var(--deep);color:var(--deep-ink);font-size:13px}
+  .pv-card table{margin-top:2px}
+  .pv-flags .pv-tag{margin-inline-start:4px;white-space:normal}
+  .pv-card table{width:100%}
+  .pv-card th,.pv-card td:first-child,.pv-card td:last-child{white-space:nowrap}
+  @media (max-width:560px){ .pv-wrap{padding:10px 10px} .pv-banner{margin:10px 10px 0} .pv-card{padding:10px} }
 </style>
 </head>
 <body>
@@ -192,8 +222,29 @@
   <span class="count" id="cycle"></span>
   <span class="grow"></span>
   <span class="count" id="count"></span>
+  <span class="tabs" id="tabs" hidden>
+    <button id="tab-main" aria-pressed="true">הצעות</button>
+    <button id="tab-preview" aria-pressed="false">תצוגה ראשונית 2027</button>
+  </span>
   <button id="refresh">רענון</button>
 </header>
+
+<section id="preview" hidden aria-label="תצוגה ראשונית">
+  <div class="pv-banner" id="pv-banner"></div>
+  <div class="summary" id="pv-summary"></div>
+  <details class="filters-wrap" open>
+  <summary>סינון</summary>
+  <div class="filters">
+    <label>הצגה <select id="pv-show"><option value="">הכל</option></select></label>
+    <label>אולם <select id="pv-venue"><option value="">הכל</option></select></label>
+    <label>התאמה <select id="pv-level"><option value="">הכל</option></select></label>
+    <label>מתאריך <input type="date" id="pv-from"></label>
+    <label>עד <input type="date" id="pv-to"></label>
+    <button id="pv-clear">נקה סינון</button>
+  </div>
+  </details>
+  <div class="pv-wrap" id="pv-body"><div class="note">טוען…</div></div>
+</section>
 
 <div class="summary" id="summary" hidden></div>
 <div class="info" id="info" hidden></div>
@@ -935,7 +986,250 @@ window.ProposalsLogic = (function () {
            HEB_MONTHS[d.getUTCMonth()];
   }
 
+  /* ---- Preliminary preview (26.11.2026): read only -----------------------
+   * A separate, private board holds preliminary ENGINE results (built
+   * locally, never on the proposals board). This tab only reads it. It has
+   * no selection, no note and no write of any kind: nothing below reaches
+   * apiWrite, and the board id is not BOARD_ID, so assertWriteAllowed
+   * would refuse it anyway. Blank id = the tab is not shown. */
+  var PREVIEW_BOARD_ID = "5108626359";
+  var PREVIEW_TITLE = "תצוגה ראשונית – לא שיבוץ מאושר";
+  var PREVIEW_DATA_DATE = "26.11.2026";
+  /* the participant match levels of a venue-free proposal, each its own list */
+  var PREVIEW_LEVELS = [
+    { key: "possible", label: "אפשרי", title: "הצעות אפשריות", note: "כל המשתתפים הרלוונטיים ענו וזמינים." },
+    { key: "review", label: "נדרשת בדיקת משתתפים", title: "הצעות שדורשות בדיקת משתתפים",
+      note: "משתתף אחד או יותר לא זמין או לא ענה. הפירוט בכל הצעה." },
+    { key: "deep", label: "נדרשת בדיקת משתתפים מעמיקה", title: "הצעות שדורשות בדיקה מעמיקה",
+      note: "כמה משתתפים לא זמינים או לא ענו. הפירוט בכל הצעה." }];
+  var PREVIEW_KIND = { ok: "הצעה, אולם פנוי", cond: "הצעה מותנית", gap: "חוסר" };
+  var PREVIEW_VENUE_OK = "אולם פנוי";
+  var PREVIEW_COLS = ["pv_kind", "pv_show", "pv_date", "pv_venue", "pv_region", "pv_venue_ok",
+                      "pv_level", "pv_score", "pv_reason", "pv_people", "pv_warnings", "pv_key"];
+
+  function isPreviewBoard(boardId) {
+    return isRealBoardId(PREVIEW_BOARD_ID) && String(boardId || "") === PREVIEW_BOARD_ID;
+  }
+
+  function previewQuery() {
+    return assertReadOnly(
+      "query ($board: [ID!], $cols: [String!], $cursor: String) {" +
+      " boards (ids: $board) { id name items_page (limit: 500, cursor: $cursor) { cursor items { id name" +
+      " column_values (ids: $cols) { id text } } } } }");
+  }
+
+  /** One board item -> one preview row. A row counts as "venue free" only
+   *  when BOTH its kind and its venue column say so. Anything else that is
+   *  not a gap is shown as conditional: a doubtful row is never shown as
+   *  confirmed. */
+  function normalisePreviewItem(it) {
+    var t = function (id) { return cellText(it, id); };
+    var kind = t("pv_kind"), venueOk = t("pv_venue_ok");
+    var section = kind === PREVIEW_KIND.gap ? "gap"
+      : (kind === PREVIEW_KIND.ok && venueOk === PREVIEW_VENUE_OK ? "ok" : "cond");
+    return { id: String(it.id), name: it.name || "", section: section, kind: kind,
+             show: t("pv_show"), date: t("pv_date"), venue: t("pv_venue"), region: t("pv_region"),
+             venueOk: section === "cond" && venueOk === PREVIEW_VENUE_OK ? "לא אומת" : venueOk,
+             level: t("pv_level"), score: parseScore(t("pv_score")),
+             reason: t("pv_reason"), people: t("pv_people"), warnings: t("pv_warnings"), key: t("pv_key") };
+  }
+
+  /** f: {show, venue, from, to, level}. Gaps are filtered by show only. */
+  function previewSections(rows, f) {
+    f = f || {};
+    var out = { ok: [], cond: [], gap: [] };
+    rows.forEach(function (r) {
+      if (f.show && r.show !== f.show) { return; }
+      if (r.section !== "gap") {
+        if (f.venue && r.venue !== f.venue) { return; }
+        if (f.from && r.date < f.from) { return; }
+        if (f.to && r.date > f.to) { return; }
+        if (f.level && r.level !== f.level) { return; }
+      }
+      out[r.section].push(r);
+    });
+    var bySc = function (a, b) {
+      var sa = a.score == null ? -Infinity : a.score, sb = b.score == null ? -Infinity : b.score;
+      return sb - sa || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    };
+    out.ok.sort(bySc);
+    /* conditional proposals are listed by date: their score is not
+       comparable with the venue-free ones, so it is not used at all */
+    out.cond.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.show < b.show ? -1 : 1); });
+    out.levels = {};
+    PREVIEW_LEVELS.forEach(function (lv) { out.levels[lv.key] = []; });
+    out.ok.forEach(function (r) {
+      var lv = PREVIEW_LEVELS.filter(function (x) { return x.label === r.level; })[0];
+      out.levels[lv ? lv.key : "deep"].push(r);          // an unknown level is never shown as possible
+    });
+    out.gap.sort(function (a, b) { return a.show < b.show ? -1 : a.show > b.show ? 1 : 0; });
+    return out;
+  }
+
+  function previewSummary(rows) {
+    var s = { ok: 0, cond: 0, gap: 0, shows: 0, blockedShows: 0 };
+    var shows = {}, blocked = {};
+    rows.forEach(function (r) {
+      s[r.section]++;
+      if (r.section !== "gap") { shows[r.show] = 1; }
+      else if (!r.people) { blocked[r.show] = 1; }
+    });
+    s.shows = Object.keys(shows).length;
+    s.blockedShows = Object.keys(blocked).filter(function (x) { return !shows[x]; }).length;
+    return s;
+  }
+
+  /* ---- Focused view (approved 26.11.2026): one card per show ------------
+   * Display only. The order is ENGINE's own (match level, then score, then
+   * date). The only addition: among proposals ENGINE scored the same, the
+   * card prefers a month, then a venue, it has not shown yet, so five equal
+   * proposals do not all fall in one week. One proposal per date. Nothing
+   * is chosen, approved or removed: every proposal stays one click away. */
+  var PREVIEW_TOP = 5;
+  /* targets as read from monday on 26.11.2026. "decided" = agreed with the
+     theatre but not yet entered in monday: shown, never counted as verified */
+  var PREVIEW_TARGETS = [
+    { show: "מלך הקריוקי", target: 19, source: "monday" },
+    { show: "אנטי אייג'ינג", target: 17, source: "monday" },
+    { show: "ממתקה", target: 14, source: "monday" },
+    { show: "שבבים", target: 13, source: "monday" },
+    { show: "אסתר", target: 8, source: "monday" },
+    { show: "בוז'ולה", target: 8, source: "monday" },
+    { show: "אחינועם ואני", target: 3, source: "monday" },
+    { show: "איפה הילד", target: 1, source: "decided" }];
+
+  function pvLevelRank(r) {
+    for (var i = 0; i < PREVIEW_LEVELS.length; i++) { if (PREVIEW_LEVELS[i].label === r.level) { return i; } }
+    return PREVIEW_LEVELS.length;                     // unknown level: last, never "possible"
+  }
+  function pvEngineOrder(a, b) {
+    var sa = a.score == null ? -Infinity : a.score, sb = b.score == null ? -Infinity : b.score;
+    return pvLevelRank(a) - pvLevelRank(b) || sb - sa ||
+      (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.venue < b.venue ? -1 : a.venue > b.venue ? 1 : 0));
+  }
+  /** what kind of people problem a review proposal has, from its people text */
+  function pvPeopleFlag(r) {
+    var p = r.people || "";
+    var flags = [];
+    if (/לא זמינ/.test(p)) { flags.push("משתתף לא זמין"); }
+    if (/לא ענ/.test(p)) { flags.push("משתתף לא ענה"); }
+    return flags.length ? flags.join(" · ") : "נדרשת בדיקת משתתפים";
+  }
+  /** up to n proposals in ENGINE order; among equal scores: a month not shown
+   *  yet, then a venue and date no other show has at its top (taken), then a
+   *  venue not shown yet. Returned in ENGINE order (equal scores by date). */
+  function pvPickTop(list, n, taken) {
+    taken = taken || {};
+    var rest = list.slice().sort(pvEngineOrder), out = [], months = {}, venues = {}, dates = {};
+    while (out.length < n) {
+      rest = rest.filter(function (r) { return !dates[r.date]; });
+      if (!rest.length) { break; }
+      var head = rest[0];
+      var tie = rest.filter(function (r) { return pvLevelRank(r) === pvLevelRank(head) && r.score === head.score; });
+      tie.sort(function (a, b) {
+        return (months[a.date.slice(0, 7)] ? 1 : 0) - (months[b.date.slice(0, 7)] ? 1 : 0) ||
+               (taken[a.venue + "|" + a.date] ? 1 : 0) - (taken[b.venue + "|" + b.date] ? 1 : 0) ||
+               (venues[a.venue] ? 1 : 0) - (venues[b.venue] ? 1 : 0) || pvEngineOrder(a, b);
+      });
+      var pick = tie[0];
+      out.push(pick);
+      months[pick.date.slice(0, 7)] = 1; venues[pick.venue] = 1; dates[pick.date] = 1;
+      rest = rest.filter(function (r) { return r !== pick; });
+    }
+    return out.sort(pvEngineOrder);
+  }
+
+  /** rows (already filtered) -> one card per show, targets first, in target order.
+   *  card.top: venue-free proposals where all participants are available.
+   *  card.alt: only when there is none of those: proposals to check, marked. */
+  function previewShowCards(rows) {
+    var by = {};
+    var card = function (show) {
+      if (!by[show]) {
+        var t = PREVIEW_TARGETS.filter(function (x) { return x.show === show; })[0];
+        by[show] = { show: show, target: t ? t.target : null, targetSource: t ? t.source : "none",
+                     possible: [], review: [], cond: [], gaps: [], top: [], alt: [], gap: false, gapText: "" };
+      }
+      return by[show];
+    };
+    PREVIEW_TARGETS.forEach(function (t) { card(t.show); });
+    rows.forEach(function (r) {
+      r.conflictWith = [];
+      var c = card(r.show);
+      if (r.section === "gap") { c.gaps.push(r); }
+      else if (r.section === "cond") { c.cond.push(r); }
+      else if (pvLevelRank(r) === 0) { c.possible.push(r); }
+      else { c.review.push(r); }
+    });
+    var cards = Object.keys(by).map(function (k) { return by[k]; });
+    /* shows with fully available proposals pick first, in target order; a pick
+       marks its venue and date as taken, so a later show takes an equal
+       alternative when there is one. Only a tie-break: never beats a score. */
+    var taken = {};
+    var tOrder = PREVIEW_TARGETS.map(function (t) { return t.show; });
+    var pickOrder = cards.slice().sort(function (a, b) {
+      return (b.possible.length ? 1 : 0) - (a.possible.length ? 1 : 0) ||
+             (tOrder.indexOf(a.show) + 1 || 99) - (tOrder.indexOf(b.show) + 1 || 99);
+    });
+    pickOrder.forEach(function (c) {
+      c.possible.sort(pvEngineOrder); c.review.sort(pvEngineOrder);
+      c.cond.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.venue < b.venue ? -1 : 1); });
+      c.top = pvPickTop(c.possible, PREVIEW_TOP, taken);
+      c.alt = c.top.length ? [] : pvPickTop(c.review, PREVIEW_TOP, taken);
+      c.top.concat(c.alt).forEach(function (r) { taken[r.venue + "|" + r.date] = 1; });
+    });
+    cards.forEach(function (c) {
+      var dates = {};
+      c.possible.forEach(function (r) { dates[r.date] = 1; });
+      var nDates = Object.keys(dates).length;
+      if (c.targetSource === "decided") {
+        c.gap = true; c.gapText = "היעד הוחלט אך טרם הוזן ב-Monday, ולכן המנוע לא הציע מועדים";
+      } else if (c.target == null) {
+        c.gap = true; c.gapText = "אין יעד מופעים במערכת";
+      } else if (nDates < c.target) {
+        c.gap = true;
+        c.gapText = nDates + " מועדים שבהם כל המשתתפים זמינים, מול יעד " + c.target +
+          (c.cond.length && !c.possible.length && !c.review.length ? ". יש רק הצעות מותנות באישור אולם" : "");
+      }
+    });
+    /* the same venue on the same date at the top of two shows: marked on both */
+    var seen = {};
+    cards.forEach(function (c) {
+      c.top.concat(c.alt).forEach(function (r) {
+        var k = r.venue + "|" + r.date;
+        (seen[k] = seen[k] || []).push({ show: c.show, row: r });
+      });
+    });
+    cards.forEach(function (c) {
+      c.top.concat(c.alt).forEach(function (r) {
+        r.conflictWith = (seen[r.venue + "|" + r.date] || [])
+          .filter(function (x) { return x.show !== c.show; }).map(function (x) { return x.show; });
+      });
+    });
+    var order = PREVIEW_TARGETS.map(function (t) { return t.show; });
+    cards.sort(function (a, b) {
+      var ia = order.indexOf(a.show), ib = order.indexOf(b.show);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || (a.show < b.show ? -1 : 1);
+    });
+    return cards;
+  }
+
+  function previewTargetsSummary() {
+    var s = { verified: 0, verifiedShows: 0, decided: 0, decidedShows: [] };
+    PREVIEW_TARGETS.forEach(function (t) {
+      if (t.source === "monday") { s.verified += t.target; s.verifiedShows++; }
+      else { s.decided += t.target; s.decidedShows.push(t.show); }
+    });
+    return s;
+  }
+
   return {
+    PREVIEW_BOARD_ID: PREVIEW_BOARD_ID, PREVIEW_TITLE: PREVIEW_TITLE, PREVIEW_KIND: PREVIEW_KIND,
+    PREVIEW_DATA_DATE: PREVIEW_DATA_DATE, PREVIEW_LEVELS: PREVIEW_LEVELS,
+    PREVIEW_COLS: PREVIEW_COLS, isPreviewBoard: isPreviewBoard, previewQuery: previewQuery,
+    normalisePreviewItem: normalisePreviewItem, previewSections: previewSections, previewSummary: previewSummary,
+    PREVIEW_TOP: PREVIEW_TOP, PREVIEW_TARGETS: PREVIEW_TARGETS, previewShowCards: previewShowCards,
+    previewTargetsSummary: previewTargetsSummary, pvPickTop: pvPickTop, pvPeopleFlag: pvPeopleFlag,
     HEB_WEEKDAYS: HEB_WEEKDAYS, CAL_MAX_CHIPS: CAL_MAX_CHIPS,
     isIsoDate: isIsoDate, isMonthKey: isMonthKey, monthKey: monthKey,
     addMonths: addMonths, monthLabel: monthLabel, proposalMonths: proposalMonths,
@@ -1051,6 +1345,7 @@ window.ProposalsLogic = (function () {
   }
 
   function renderTable() {
+    if (state.tab === "preview") { return; }      // the preview tab owns the screen
     var rows = L.sortRows(L.applyFilters(state.rows, currentFilters()),
                           el("f-sort").value);
     el("count").textContent = rows.length === state.rows.length
@@ -1466,7 +1761,237 @@ window.ProposalsLogic = (function () {
     });
   }
 
+  /* ---- Preliminary preview tab: reads the preview board, writes nothing ---- */
+  var pv = { rows: null, loading: false, limit: {}, open: {} };
+  var PV_PAGE = 150;
+
+  function pvTag(r) {
+    if (r.section === "ok") { return '<span class="pv-tag pv-ok">אולם פנוי</span>'; }
+    if (r.section === "cond") { return '<span class="pv-tag pv-cond">מותנה באישור האולם</span>'; }
+    return '<span class="pv-tag pv-gap">חוסר</span>';
+  }
+
+  function pvFilters() {
+    return { show: el("pv-show").value, venue: el("pv-venue").value, level: el("pv-level").value,
+             from: el("pv-from").value, to: el("pv-to").value };
+  }
+
+  function pvFlags(r, withConflict) {
+    var h = "";
+    if (r.section === "ok" && r.level !== L.PREVIEW_LEVELS[0].label) {
+      h += ' <span class="pv-tag pv-gap">' + esc(L.pvPeopleFlag(r)) + "</span>";
+    }
+    if (withConflict && r.conflictWith && r.conflictWith.length) {
+      h += ' <span class="pv-tag pv-cond">התנגשות עם ' + esc(r.conflictWith.join(", ")) + " (אותו אולם ותאריך)</span>";
+    }
+    return h;
+  }
+
+  function pvTable(list, key, withScore, opts) {
+    opts = opts || {};
+    if (!list.length) { return '<div class="note">אין הצעות בסינון הזה.</div>'; }
+    if (opts.noShow) { return pvCardTable(list, key, withScore, opts); }
+    var shown = list.slice(0, pv.limit[key] || PV_PAGE);
+    var html = '<table><thead><tr><th>הצגה</th><th>תאריך</th><th>אולם</th><th class="hide">אזור</th>' +
+      '<th>אישור אולם</th><th class="hide">התאמה (משתתפים)</th>' + (withScore ? "<th>ניקוד</th>" : "") +
+      "</tr></thead><tbody>";
+    shown.forEach(function (r) {
+      html += '<tr class="pv-row" data-pv="' + esc(r.id) + '"><td>' + esc(r.show) + "</td><td>" +
+        esc(L.shortDate(r.date)) + "</td><td>" + esc(r.venue) + '</td><td class="hide">' + esc(r.region) +
+        "</td><td>" + pvTag(r) + '</td><td class="hide">' + esc(r.level) + "</td>" +
+        (withScore ? "<td>" + esc(L.formatScore(r.score)) + "</td>" : "") + "</tr>" +
+        '<tr class="pv-detail" data-pv-detail="' + esc(r.id) + '" hidden><td colspan="' + (withScore ? 7 : 6) + '">' +
+        "<b>" + esc(L.longDate ? L.longDate(r.date) : r.date) + "</b>\n" +
+        "התאמה: " + esc(r.level) + "\n" + esc(r.reason) +
+        (r.people ? "\n\n<b>משתתפים</b>\n" + esc(r.people) : "") +
+        (r.warnings ? "\n\n<b>אזהרות</b>\n" + esc(r.warnings) : "") + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    if (list.length > shown.length) {
+      html += '<button class="pv-more" data-pv-more="' + key + '">הצג עוד (' + (list.length - shown.length) + ")</button>";
+    }
+    return html;
+  }
+
+  /* the table inside a show card: no show column, the marks next to the venue answer */
+  function pvCardTable(list, key, withScore, opts) {
+    var shown = opts.all ? list : list.slice(0, pv.limit[key] || PV_PAGE);
+    var cols = withScore ? 6 : 5;
+    var html = '<table><thead><tr><th>תאריך</th><th>אולם</th><th class="hide">אזור</th>' +
+      '<th>אישור אולם וסימונים</th><th class="hide">התאמה (משתתפים)</th>' + (withScore ? "<th>ניקוד</th>" : "") +
+      "</tr></thead><tbody>";
+    shown.forEach(function (r) {
+      html += '<tr class="pv-row" data-pv="' + esc(r.id) + '"><td>' + esc(L.shortDate(r.date)) + "</td><td>" +
+        esc(r.venue) + '</td><td class="hide">' + esc(r.region) + '</td><td class="pv-flags">' + pvTag(r) +
+        pvFlags(r, opts.conflicts) + '</td><td class="hide">' + esc(r.level) + "</td>" +
+        (withScore ? "<td>" + esc(L.formatScore(r.score)) + "</td>" : "") + "</tr>" +
+        '<tr class="pv-detail" data-pv-detail="' + esc(r.id) + '" hidden><td colspan="' + cols + '">' +
+        "<b>" + esc(L.longDate ? L.longDate(r.date) : r.date) + "</b>\n" +
+        "התאמה: " + esc(r.level) + "\n" + esc(r.reason) +
+        (r.people ? "\n\n<b>משתתפים</b>\n" + esc(r.people) : "") +
+        (r.warnings ? "\n\n<b>אזהרות</b>\n" + esc(r.warnings) : "") + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    if (list.length > shown.length) {
+      html += '<button class="pv-more" data-pv-more="' + esc(key) + '">הצג עוד (' + (list.length - shown.length) + ")</button>";
+    }
+    return html;
+  }
+
+  function pvCard(c) {
+    var tgt = c.target == null ? "אין יעד במערכת"
+      : c.targetSource === "decided" ? "יעד " + c.target + " (הוחלט, טרם הוזן ב-Monday)"
+      : "יעד " + c.target + " הופעות";
+    var html = '<div class="pv-card" data-pv-card="' + esc(c.show) + '"><h2>' + esc(c.show) +
+      ' <span class="pv-tag pv-ok">' + esc(tgt) + "</span>" +
+      (c.gap ? ' <span class="pv-tag pv-gap">חוסר</span>' : "") + "</h2>" +
+      '<div class="pv-nums"><span><b>' + c.possible.length + "</b> הצעות אפשריות</span>" +
+      "<span><b>" + c.review.length + "</b> הצעות לבדיקת משתתפים</span>" +
+      "<span><b>" + c.cond.length + "</b> מותנות באישור אולם</span>" +
+      "<span><b>" + c.gaps.length + "</b> חוסרים</span></div>";
+    if (c.gap) { html += '<div class="pv-gapline">חוסר: ' + esc(c.gapText) + "</div>"; }
+    c.gaps.forEach(function (g) {
+      html += '<div class="pv-gapline">' + esc(g.reason) + (g.people ? " (" + esc(g.people) + ")" : "") + "</div>";
+    });
+    if (c.top.length) {
+      html += "<h3>הצעות מובילות (" + c.top.length + "): אולם פנוי וכל המשתתפים זמינים. הצעה בלבד, לא שיבוץ</h3>" +
+        pvTable(c.top, "top:" + c.show, true, { noShow: true, all: true, conflicts: true });
+    } else if (c.alt.length) {
+      html += "<h3>אין הצעה שבה כל המשתתפים זמינים. חלופות לבדיקה (" + c.alt.length + "), לא הצעות תקינות</h3>" +
+        pvTable(c.alt, "alt:" + c.show, true, { noShow: true, all: true, conflicts: true });
+    } else if (!c.cond.length) {
+      html += '<div class="note">אין הצעות להצגה הזו בסינון הנוכחי.</div>';
+    }
+    var picked = c.top.concat(c.alt);
+    var morePossible = c.possible.filter(function (r) { return picked.indexOf(r) === -1; });
+    var moreReview = c.review.filter(function (r) { return picked.indexOf(r) === -1; });
+    var more = morePossible.length + moreReview.length + c.cond.length;
+    if (more) {
+      var open = !!pv.open[c.show];
+      html += '<button class="pv-more" data-pv-open="' + esc(c.show) + '" aria-expanded="' + open + '">' +
+        (open ? "הסתר חלופות נוספות" : "הצג חלופות נוספות (" + more + ")") + "</button>";
+      if (open) {
+        if (morePossible.length) {
+          html += "<h3>עוד הצעות אפשריות (" + morePossible.length + ")</h3>" +
+            pvTable(morePossible, "pos:" + c.show, true, { noShow: true });
+        }
+        if (moreReview.length) {
+          html += "<h3>הצעות לבדיקת משתתפים (" + moreReview.length + "): משתתף לא זמין או לא ענה</h3>" +
+            pvTable(moreReview, "rev:" + c.show, true, { noShow: true });
+        }
+        if (c.cond.length) {
+          html += "<h3>מותנות באישור אולם (" + c.cond.length + "): לפי תאריך, בלי ניקוד ובלי השוואה להצעות עם אולם פנוי</h3>" +
+            pvTable(c.cond, "cond:" + c.show, false, { noShow: true });
+        }
+      }
+    }
+    return html + "</div>";
+  }
+
+  function pvRender() {
+    if (!pv.rows) { return; }
+    var sec = L.previewSections(pv.rows, pvFilters());
+    var cards = L.previewShowCards(sec.ok.concat(sec.cond, sec.gap));
+    var ts = L.previewTargetsSummary();
+    var shownTop = 0, shownAlt = 0, gaps = 0;
+    cards.forEach(function (c) { shownTop += c.top.length; shownAlt += c.alt.length; if (c.gap) { gaps++; } });
+    el("pv-summary").innerHTML =
+      '<span class="stat"><b>' + ts.verified + "</b> הופעות יעד מוזנות ב-Monday (" + ts.verifiedShows + " הצגות)</span>" +
+      (ts.decided ? '<span class="stat"><b>' + ts.decided + "</b> יעד שהוחלט וטרם הוזן (" + esc(ts.decidedShows.join(", ")) + ")</span>" : "") +
+      '<span class="stat s-possible"><b>' + shownTop + "</b> הצעות מובילות</span>" +
+      '<span class="stat s-review"><b>' + shownAlt + "</b> חלופות לבדיקה</span>" +
+      '<span class="stat s-deep"><b>' + gaps + "</b> הצגות עם חוסר</span>" +
+      '<span class="stat"><b>' + (sec.ok.length + sec.cond.length) + "</b> הצעות בסך הכל, כולן זמינות בהרחבה</span>";
+    el("pv-body").innerHTML = '<div class="count" style="margin-bottom:10px">אלה יעדים והצעות בלבד. שום הופעה לא שובצה ולא אושרה. ' +
+      "עד " + L.PREVIEW_TOP + " הצעות מובילות לכל הצגה, לפי סדר המנוע. בשוויון ניקוד מוצגים חודשים ואולמות שונים.</div>" +
+      cards.map(pvCard).join("");
+  }
+
+  function pvFill(id, values) {
+    var s = el(id), keep = s.value;
+    s.innerHTML = '<option value="">הכל</option>' + values.map(function (v) {
+      return '<option value="' + esc(v) + '">' + esc(v) + "</option>";
+    }).join("");
+    s.value = values.indexOf(keep) !== -1 ? keep : "";
+  }
+
+  function pvLoad() {
+    pv.loading = true;
+    el("pv-body").innerHTML = '<div class="note">טוען…</div>';
+    var items = [], cursor = null, guard = 0;
+    function page() {
+      return apiRead(L.previewQuery(), { board: [L.PREVIEW_BOARD_ID], cols: L.PREVIEW_COLS, cursor: cursor })
+        .then(function (res) {
+          var b = (((res.data || {}).boards) || [])[0];
+          if (!b || String(b.id) !== L.PREVIEW_BOARD_ID) { throw new Error("no access to the preview board"); }
+          var p = b.items_page || { items: [], cursor: null };
+          items = items.concat(p.items || []);
+          cursor = p.cursor;
+          if (cursor && ++guard < 20) { return page(); }
+          return items;
+        });
+    }
+    return page().then(function (raw) {
+      pv.loading = false;
+      pv.rows = raw.map(L.normalisePreviewItem);
+      var props = pv.rows.filter(function (r) { return r.section !== "gap"; });
+      pvFill("pv-show", L.distinct(pv.rows, "show"));
+      pvFill("pv-venue", L.distinct(props, "venue"));
+      pvFill("pv-level", L.distinct(props, "level"));
+      pvRender();
+    }).catch(function () {
+      pv.loading = false;
+      el("pv-body").innerHTML = '<div class="note bad"><b>אין גישה לבורד התצוגה הראשונית, או שהקריאה נכשלה.</b><br>' +
+        "התצוגה זמינה רק למי שהבורד שותף איתו. האפליקציה לא ביצעה שום שינוי.</div>";
+    });
+  }
+
+  function showTab(which) {
+    var preview = which === "preview";
+    el("tab-main").setAttribute("aria-pressed", String(!preview));
+    el("tab-preview").setAttribute("aria-pressed", String(preview));
+    el("preview").hidden = !preview;
+    ["summary", "info", "filters-wrap", "main"].forEach(function (id) {
+      if (preview) { el(id).dataset.pvHidden = el(id).hidden ? "1" : "0"; el(id).hidden = true; }
+      else if (el(id).dataset.pvHidden === "0") { el(id).hidden = false; }
+      /* .summary is display:flex, which beats [hidden]: hide it outright here */
+      el(id).style.display = preview ? "none" : "";
+    });
+    state.tab = which;
+    el("cycle").hidden = preview;                 // the current cycle's name belongs to the other tab
+    if (preview) { el("calendar").hidden = true; }
+    else if (state.rows.length) { renderTable(); }
+    if (preview && !pv.rows && !pv.loading) { pvLoad(); }
+  }
+
+  function wirePreview() {
+    el("pv-banner").innerHTML = esc(L.PREVIEW_TITLE) +
+      "<small>צילום הנתונים: " + esc(L.PREVIEW_DATA_DATE) + ". המידע אינו מתעדכן אוטומטית. הצעות ראשוניות מהרצה מקומית של המנוע על נתוני אמת. אינן שיבוצים, אינן מאושרות, " +
+      "ואי אפשר לסמן או להעביר אותן מכאן. משתתף שלא ענה מסומן 'לא ענה' ואינו נחשב זמין.</small>";
+    ["pv-show", "pv-venue", "pv-level", "pv-from", "pv-to"].forEach(function (id) {
+      el(id).addEventListener("change", function () { pv.limit = {}; pvRender(); });
+    });
+    el("pv-clear").addEventListener("click", function () {
+      ["pv-show", "pv-venue", "pv-level", "pv-from", "pv-to"].forEach(function (id) { el(id).value = ""; });
+      pv.limit = {}; pvRender();
+    });
+    el("pv-body").addEventListener("click", function (e) {
+      var tog = e.target.closest("[data-pv-open]");
+      if (tog) { var sh = tog.getAttribute("data-pv-open"); pv.open[sh] = !pv.open[sh]; pvRender(); return; }
+      var more = e.target.closest("[data-pv-more]");
+      if (more) { var k = more.getAttribute("data-pv-more"); pv.limit[k] = (pv.limit[k] || PV_PAGE) + PV_PAGE; pvRender(); return; }
+      var row = e.target.closest("[data-pv]");
+      if (row) {
+        var d = el("pv-body").querySelector('[data-pv-detail="' + row.getAttribute("data-pv") + '"]');
+        if (d) { d.hidden = !d.hidden; }
+      }
+    });
+    el("tab-main").addEventListener("click", function () { showTab("main"); });
+    el("tab-preview").addEventListener("click", function () { showTab("preview"); });
+  }
+
   function wire() {
+    wirePreview();
     wireCalendar();
     ["f-show", "f-status", "f-selection", "f-venue", "f-region",
      "f-from", "f-to", "f-action", "f-sort"]
@@ -1515,6 +2040,15 @@ window.ProposalsLogic = (function () {
       applyTheme(ctx);
       applyDensity();
 
+      el("tabs").hidden = !L.isRealBoardId(L.PREVIEW_BOARD_ID);
+      if (state.mode === "board_view" && L.isPreviewBoard(ctx.boardId)) {
+        /* A Board View on the preview board shows the read-only preview
+           only. The proposals board is not read and nothing is written. */
+        state.boardOk = false;
+        el("tab-main").hidden = true;
+        if (!state.loaded) { state.loaded = true; showTab("preview"); }
+        return;
+      }
       if (state.mode === "board_view") {
         /* A Board View sits ON a board, so sitting on the wrong one is a
            real mistake and the app refuses to read or write anything. */
