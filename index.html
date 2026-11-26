@@ -213,7 +213,26 @@
   .pv-flags .pv-tag{margin-inline-start:4px;white-space:normal}
   .pv-card table{width:100%}
   .pv-card th,.pv-card td:first-child,.pv-card td:last-child{white-space:nowrap}
-  @media (max-width:560px){ .pv-wrap{padding:10px 10px} .pv-banner{margin:10px 10px 0} .pv-card{padding:10px} }
+  .pv-views{display:flex;gap:6px;padding:10px 18px 0}
+  .pv-views button[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:transparent}
+  .pv-cal .cal-head button:disabled{opacity:.45;cursor:default}
+  .pv-cal .cal-day{cursor:pointer;text-align:right;font:inherit;color:inherit;background:var(--card)}
+  .pv-cal .cal-day.out{cursor:default}
+  .pv-cal .cal-day.sel{box-shadow:inset 0 0 0 2px var(--accent)}
+  .pv-chip{pointer-events:none}
+  .pv-chip.pv-c-cond,.pv-tagcat.pv-c-cond{background:var(--card);border:1.5px dashed var(--accent);color:var(--ink)}
+  .pv-cf{font-size:10.5px;font-weight:600;color:var(--deep-ink);background:var(--deep);border-radius:5px;padding:0 4px;align-self:flex-start}
+  .pv-hid{font-size:11px;color:var(--muted)}
+  .pv-day{margin:0 0 12px;padding:12px 14px;border:1px solid var(--accent);border-radius:10px;background:var(--card)}
+  .pv-day h3{margin:0 0 6px;font-size:15px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .pv-day h4{margin:12px 0 4px;font-size:13px}
+  .pv-it{border-top:1px solid var(--line);padding:8px 0;white-space:pre-line;font-size:13px}
+  .pv-it b{font-size:13.5px}
+  .pv-tagcat{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px}
+  .pv-cal .agenda .ag-day{cursor:pointer}
+  .pv-cal .agenda .ag-day.sel{box-shadow:inset 0 0 0 2px var(--accent)}
+  @media (max-width:560px){ .pv-wrap{padding:10px 10px} .pv-banner{margin:10px 10px 0} .pv-card{padding:10px}
+    .pv-views{padding:8px 10px 0} .pv-day{padding:10px} }
 </style>
 </head>
 <body>
@@ -243,6 +262,10 @@
     <button id="pv-clear">נקה סינון</button>
   </div>
   </details>
+  <div class="pv-views" role="group" aria-label="אופן התצוגה">
+    <button id="pv-v-shows" aria-pressed="true">לפי הצגה</button>
+    <button id="pv-v-cal" aria-pressed="false">יומן</button>
+  </div>
   <div class="pv-wrap" id="pv-body"><div class="note">טוען…</div></div>
 </section>
 
@@ -1214,6 +1237,80 @@ window.ProposalsLogic = (function () {
     return cards;
   }
 
+  /* ---- Calendar view of the preview (requested by Raaya and Eran 26.11.2026) ----
+   * Display only, on the same rows and the same top picks as the cards. The
+   * month grid is the existing buildMonth (holidays, Shabbat times); only
+   * the items of each day are the preview's own. */
+  var PREVIEW_MONTHS = ["2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06"];
+  var PREVIEW_CATS = [
+    { key: "ok", label: "אולם פנוי, הצעה אפשרית", cls: "s-possible" },
+    { key: "review", label: "דורשת בדיקת משתתפים", cls: "s-review" },
+    { key: "deep", label: "בדיקה מעמיקה", cls: "s-deep" },
+    { key: "cond", label: "מותנית באישור אולם", cls: "pv-c-cond" }];
+
+  function pvCategory(r) {
+    if (r.section === "cond") { return "cond"; }
+    var k = pvLevelRank(r);
+    return k === 0 ? "ok" : k === 1 ? "review" : "deep";
+  }
+  function pvCatOrder(r) {
+    var c = pvCategory(r);
+    for (var i = 0; i < PREVIEW_CATS.length; i++) { if (PREVIEW_CATS[i].key === c) { return i; } }
+    return PREVIEW_CATS.length;
+  }
+
+  /** The same venue on the same date for different shows, among the given rows. */
+  function pvDayConflicts(rows) {
+    var byVenue = {};
+    rows.forEach(function (r) { (byVenue[r.venue] = byVenue[r.venue] || {})[r.show] = 1; });
+    return Object.keys(byVenue).filter(function (v) { return Object.keys(byVenue[v]).length > 1; })
+      .map(function (v) { return { venue: v, shows: Object.keys(byVenue[v]).sort() }; });
+  }
+
+  /** rows: the filtered preview rows (gaps ignored). opts.all: every proposal,
+   *  otherwise only the top picks of the cards (previewShowCards). Every day
+   *  keeps all its proposals in `day`, so nothing is out of reach. */
+  function previewCalendar(rows, key, opts) {
+    opts = opts || {};
+    if (PREVIEW_MONTHS.indexOf(key) === -1) { key = PREVIEW_MONTHS[0]; }
+    var props = (rows || []).filter(function (r) { return r.section !== "gap" && isIsoDate(r.date); });
+    var top = {};
+    previewShowCards(rows || []).forEach(function (c) { c.top.concat(c.alt).forEach(function (r) { top[r.id] = 1; }); });
+    var byDay = {};
+    props.forEach(function (r) { if (monthKey(r.date) === key) { (byDay[r.date] = byDay[r.date] || []).push(r); } });
+    var order = function (a, b) {
+      return pvCatOrder(a) - pvCatOrder(b) || (a.show < b.show ? -1 : a.show > b.show ? 1 : (a.venue < b.venue ? -1 : 1));
+    };
+    var month = buildMonth(key, [], opts.holidays, opts.today, opts.zmanim);
+    var shownTotal = 0, hiddenTotal = 0;
+    month.weeks.forEach(function (w) {
+      w.forEach(function (c) {
+        var day = (c.inMonth ? byDay[c.iso] || [] : []).slice().sort(order);
+        c.day_rows = day;
+        c.items = opts.all ? day : day.filter(function (r) { return top[r.id]; });
+        c.hidden = day.length - c.items.length;
+        c.conflicts = pvDayConflicts(c.items);
+        c.all_conflicts = pvDayConflicts(day);
+        shownTotal += c.items.length; hiddenTotal += c.hidden;
+      });
+    });
+    var i = PREVIEW_MONTHS.indexOf(key);
+    month.shown = shownTotal;
+    month.hidden = hiddenTotal;
+    month.prev = i > 0 ? PREVIEW_MONTHS[i - 1] : "";
+    month.next = i < PREVIEW_MONTHS.length - 1 ? PREVIEW_MONTHS[i + 1] : "";
+    return month;
+  }
+
+  /** Where the calendar opens: the first cycle month with a shown proposal. */
+  function previewFirstMonth(rows, all) {
+    var top = {};
+    previewShowCards(rows || []).forEach(function (c) { c.top.concat(c.alt).forEach(function (r) { top[r.id] = 1; }); });
+    var months = (rows || []).filter(function (r) { return r.section !== "gap" && (all || top[r.id]); })
+      .map(function (r) { return monthKey(r.date); }).filter(function (k) { return PREVIEW_MONTHS.indexOf(k) !== -1; }).sort();
+    return months[0] || PREVIEW_MONTHS[0];
+  }
+
   function previewTargetsSummary() {
     var s = { verified: 0, verifiedShows: 0, decided: 0, decidedShows: [] };
     PREVIEW_TARGETS.forEach(function (t) {
@@ -1230,6 +1327,8 @@ window.ProposalsLogic = (function () {
     normalisePreviewItem: normalisePreviewItem, previewSections: previewSections, previewSummary: previewSummary,
     PREVIEW_TOP: PREVIEW_TOP, PREVIEW_TARGETS: PREVIEW_TARGETS, previewShowCards: previewShowCards,
     previewTargetsSummary: previewTargetsSummary, pvPickTop: pvPickTop, pvPeopleFlag: pvPeopleFlag,
+    PREVIEW_MONTHS: PREVIEW_MONTHS, PREVIEW_CATS: PREVIEW_CATS, pvCategory: pvCategory,
+    previewCalendar: previewCalendar, previewFirstMonth: previewFirstMonth, pvDayConflicts: pvDayConflicts,
     HEB_WEEKDAYS: HEB_WEEKDAYS, CAL_MAX_CHIPS: CAL_MAX_CHIPS,
     isIsoDate: isIsoDate, isMonthKey: isMonthKey, monthKey: monthKey,
     addMonths: addMonths, monthLabel: monthLabel, proposalMonths: proposalMonths,
@@ -1762,7 +1861,7 @@ window.ProposalsLogic = (function () {
   }
 
   /* ---- Preliminary preview tab: reads the preview board, writes nothing ---- */
-  var pv = { rows: null, loading: false, limit: {}, open: {} };
+  var pv = { rows: null, loading: false, limit: {}, open: {}, view: "shows", month: "", calAll: false, day: "" };
   var PV_PAGE = 150;
 
   function pvTag(r) {
@@ -1902,9 +2001,105 @@ window.ProposalsLogic = (function () {
       '<span class="stat s-review"><b>' + shownAlt + "</b> חלופות לבדיקה</span>" +
       '<span class="stat s-deep"><b>' + gaps + "</b> הצגות עם חוסר</span>" +
       '<span class="stat"><b>' + (sec.ok.length + sec.cond.length) + "</b> הצעות בסך הכל, כולן זמינות בהרחבה</span>";
+    el("pv-v-shows").setAttribute("aria-pressed", String(pv.view !== "cal"));
+    el("pv-v-cal").setAttribute("aria-pressed", String(pv.view === "cal"));
+    if (pv.view === "cal") { pvRenderCal(sec.ok.concat(sec.cond)); return; }
     el("pv-body").innerHTML = '<div class="count" style="margin-bottom:10px">אלה יעדים והצעות בלבד. שום הופעה לא שובצה ולא אושרה. ' +
       "עד " + L.PREVIEW_TOP + " הצעות מובילות לכל הצגה, לפי סדר המנוע. בשוויון ניקוד מוצגים חודשים ואולמות שונים.</div>" +
       cards.map(pvCard).join("");
+  }
+
+  /* ---- the calendar view of the preview: read only, no drag, no action ---- */
+  function pvCatOf(r) {
+    var k = L.pvCategory(r);
+    return L.PREVIEW_CATS.filter(function (c) { return c.key === k; })[0];
+  }
+  function pvChip(r, conflicts) {
+    var cat = pvCatOf(r);
+    var cf = conflicts.some(function (x) { return x.venue === r.venue && x.shows.indexOf(r.show) !== -1; });
+    return '<span class="chip pv-chip ' + cat.cls + '" title="' + esc(r.show + " · " + r.venue + " · " + cat.label) + '">' +
+      '<span class="c-show">' + (cf ? "! " : "") + esc(r.show) + '</span><span class="c-meta">' + esc(r.venue) + "</span></span>";
+  }
+  function pvDayItem(r, conflicts) {
+    var cat = pvCatOf(r);
+    var cf = conflicts.filter(function (x) { return x.venue === r.venue && x.shows.indexOf(r.show) !== -1; })[0];
+    var lines = [];
+    lines.push("אולם: " + r.venue + (r.region ? " (" + r.region + ")" : ""));
+    lines.push("אישור אולם: " + (r.section === "cond" ? "מותנה באישור האולם (דורש בדיקה)" : (r.venueOk || "אולם פנוי")));
+    lines.push("רמת התאמה: " + (r.level || "לא ידועה") + (r.section === "ok" && L.pvCategory(r) !== "ok" ? " · " + L.pvPeopleFlag(r) : ""));
+    if (r.section === "ok" && r.score != null) { lines.push("ניקוד: " + L.formatScore(r.score)); }
+    if (r.reason) { lines.push(r.reason); }
+    if (r.people) { lines.push("משתתפים: " + r.people); }
+    if (r.warnings) { lines.push("אזהרות: " + r.warnings); }
+    if (cf) { lines.push("התנגשות: באותו אולם ובאותו תאריך מוצעות גם " + cf.shows.filter(function (x) { return x !== r.show; }).join(", ")); }
+    return '<div class="pv-it"><b>' + esc(r.show) + '</b> <span class="pv-tagcat ' + cat.cls + '">' + esc(cat.label) + "</span>" +
+      (cf ? ' <span class="pv-cf">התנגשות</span>' : "") + "\n" + esc(lines.join("\n")) + "</div>";
+  }
+  function pvDayPanel(c) {
+    var shown = c.items, more = c.day_rows.filter(function (r) { return shown.indexOf(r) === -1; });
+    var html = '<div class="pv-day" id="pv-day-panel"><h3>' + esc(L.longDate(c.iso)) +
+      (c.holiday ? ' <span class="pv-tag pv-gap">' + esc(L.holidayText(c.holiday)) + "</span>" : "") +
+      ' <span class="grow"></span><button data-pv-day-close="1">סגור</button></h3>' +
+      '<div class="count">הצעות ראשוניות בלבד. אין כאן אישור, שינוי או העברה ליומן הפעילות.</div>';
+    if (c.all_conflicts.length) {
+      html += '<div class="pv-gapline">התנגשויות ביום הזה (אותו אולם, כמה הצגות): ' +
+        esc(c.all_conflicts.map(function (x) { return x.venue + ": " + x.shows.join(", "); }).join(" · ")) + "</div>";
+    }
+    html += "<h4>" + (pv.calAll ? "כל ההצעות ביום" : "הצעות מובילות ביום") + " (" + shown.length + ")</h4>" +
+      (shown.length ? shown.map(function (r) { return pvDayItem(r, c.all_conflicts); }).join("") : '<div class="note">אין הצעות מובילות ביום הזה.</div>');
+    if (more.length) {
+      html += "<h4>חלופות נוספות ביום (" + more.length + ")</h4>" + more.map(function (r) { return pvDayItem(r, c.all_conflicts); }).join("");
+    }
+    return html + "</div>";
+  }
+  function pvRenderCal(rows) {
+    if (!pv.month) { pv.month = L.previewFirstMonth(rows, pv.calAll); }
+    var m = L.previewCalendar(rows, pv.month, { all: pv.calAll, holidays: window.ProposalsHolidays,
+                                                today: todayIso(), zmanim: window.ProposalsZmanim });
+    pv.month = m.key;
+    var sel = null;
+    var grid = '<div class="cal-grid" role="grid">';
+    for (var w = 0; w < 7; w++) { grid += '<div class="cal-wd" role="columnheader">' + esc(L.weekdayLabel(w)) + "</div>"; }
+    var days = [];
+    m.weeks.forEach(function (week) {
+      week.forEach(function (c) {
+        if (c.inMonth && c.iso === pv.day) { sel = c; }
+        if (c.inMonth && (c.day_rows.length || c.holiday)) { days.push(c); }
+        var shown = c.items.slice(0, L.CAL_MAX_CHIPS), rest = c.items.length - shown.length;
+        grid += '<div class="cal-day' + dayClass(c) + (c.iso === pv.day ? " sel" : "") + '" role="gridcell"' +
+          (c.inMonth ? ' tabindex="0" data-pv-day="' + c.iso + '"' : "") + ' aria-label="' + esc(L.longDate(c.iso)) + '">' +
+          '<span class="cal-num">' + c.day + "</span>" + (c.inMonth ? holidayHtml(c.holiday) : "") +
+          shown.map(function (r) { return pvChip(r, c.conflicts); }).join("") +
+          (rest > 0 ? '<span class="pv-hid">ועוד ' + rest + "</span>" : "") +
+          (c.conflicts.length ? '<span class="pv-cf">התנגשות</span>' : "") +
+          (c.hidden ? '<span class="pv-hid">+' + c.hidden + " חלופות</span>" : "") + "</div>";
+      });
+    });
+    grid += "</div>";
+    var agenda = '<div class="agenda">' + (days.length ? days.map(function (c) {
+      return '<div class="ag-day' + dayClass(c) + (c.iso === pv.day ? " sel" : "") + '" tabindex="0" data-pv-day="' + c.iso + '">' +
+        '<div class="ag-date">' + esc(L.longDate(c.iso)) + (c.holiday ? " · " + esc(L.holidayText(c.holiday)) : "") + "</div>" +
+        c.items.map(function (r) { return pvChip(r, c.conflicts); }).join("") +
+        (c.conflicts.length ? '<span class="pv-cf">התנגשות</span> ' : "") +
+        (c.hidden ? '<span class="pv-hid">+' + c.hidden + " חלופות ביום הזה</span>" : "") + "</div>";
+    }).join("") : '<div class="ag-day">אין הצעות בחודש הזה.</div>') + "</div>";
+    var legend = '<div class="cal-legend">' + L.PREVIEW_CATS.map(function (c) {
+      return '<span><span class="sw ' + c.cls + '"' + (c.key === "cond" ? ' style="border:1.5px dashed var(--accent)"' : "") + "></span>" + esc(c.label) + "</span>";
+    }).join("") + '<span><span class="sw" style="background:var(--hol)"></span>חג</span>' +
+      '<span><span class="pv-cf">התנגשות</span> אותו אולם ותאריך לכמה הצגות</span></div>';
+    el("pv-body").innerHTML =
+      '<div class="count" style="margin-bottom:10px">יומן ההצעות הראשוניות, ינואר עד יוני 2027. אלה הצעות בלבד: שום הופעה לא שובצה ולא אושרה. ' +
+      (pv.calAll ? "מוצגות כל ההצעות." : "מוצגות ההצעות המובילות בלבד, כמו בכרטיסי ההצגות.") + " לחיצה על יום פותחת את הפירוט.</div>" +
+      (sel ? pvDayPanel(sel) : "") +
+      '<section class="cal pv-cal" style="margin:0" aria-label="יומן ההצעות הראשוניות"><div class="cal-head">' +
+      '<button data-pv-month="' + m.prev + '"' + (m.prev ? "" : " disabled") + ">החודש הקודם</button>" +
+      "<h2>" + esc(m.label) + "</h2>" +
+      '<button data-pv-month="' + m.next + '"' + (m.next ? "" : " disabled") + ">החודש הבא</button>" +
+      '<span class="count">' + m.shown + " מוצגות" + (m.hidden ? " · " + m.hidden + " חלופות נוספות בחודש" : "") + "</span>" +
+      '<span class="grow"></span><button data-pv-all="1">' + (pv.calAll ? "הצעות מובילות בלבד" : "הצג גם חלופות נוספות") + "</button></div>" +
+      (m.covered ? "" : '<div class="cal-note">אין נתוני חגים לחודש הזה, ולכן חגים אינם מסומנים בו.</div>') +
+      grid + agenda + legend + "</section>";
+    if (sel && pv.scrollToDay) { pv.scrollToDay = false; var p = el("pv-day-panel"); if (p && p.scrollIntoView) { p.scrollIntoView({ block: "start" }); } }
   }
 
   function pvFill(id, values) {
@@ -1976,6 +2171,12 @@ window.ProposalsLogic = (function () {
       pv.limit = {}; pvRender();
     });
     el("pv-body").addEventListener("click", function (e) {
+      var mo = e.target.closest("[data-pv-month]");
+      if (mo) { if (mo.getAttribute("data-pv-month")) { pv.month = mo.getAttribute("data-pv-month"); pv.day = ""; pvRender(); } return; }
+      if (e.target.closest("[data-pv-all]")) { pv.calAll = !pv.calAll; pvRender(); return; }
+      if (e.target.closest("[data-pv-day-close]")) { pv.day = ""; pvRender(); return; }
+      var dy = e.target.closest("[data-pv-day]");
+      if (dy) { pv.day = dy.getAttribute("data-pv-day"); pv.scrollToDay = true; pvRender(); return; }
       var tog = e.target.closest("[data-pv-open]");
       if (tog) { var sh = tog.getAttribute("data-pv-open"); pv.open[sh] = !pv.open[sh]; pvRender(); return; }
       var more = e.target.closest("[data-pv-more]");
@@ -1986,6 +2187,13 @@ window.ProposalsLogic = (function () {
         if (d) { d.hidden = !d.hidden; }
       }
     });
+    el("pv-body").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" && e.key !== " ") { return; }
+      var dy = e.target.closest && e.target.closest("[data-pv-day]");
+      if (dy) { e.preventDefault(); pv.day = dy.getAttribute("data-pv-day"); pv.scrollToDay = true; pvRender(); }
+    });
+    el("pv-v-shows").addEventListener("click", function () { pv.view = "shows"; pvRender(); });
+    el("pv-v-cal").addEventListener("click", function () { pv.view = "cal"; pvRender(); });
     el("tab-main").addEventListener("click", function () { showTab("main"); });
     el("tab-preview").addEventListener("click", function () { showTab("preview"); });
   }
